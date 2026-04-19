@@ -14,8 +14,10 @@ const FLIGHTS = [
   {
     id:"f1", iata:"AA 1307", code:"AA", airline:"American Airlines",
     dep:"MIA", arr:"LIM", depTime:"3:51 PM", arrTime:"8:30 PM",
+    depFull:"Miami Intl (MIA)", arrFull:"Jorge Chávez Intl · Lima",
     status:"Scheduled", progress:0, gate:"TBD", terminal:"D",
     aircraft:"Boeing 737", date:"Wed Apr 22, 2026", conf:"WKZGIC",
+    leg:1, trip:"outbound",
     wx:{
       dep:{ icon:"🌤️", temp:82, cond:"Partly Cloudy", wind:12, note:"Good departure conditions" },
       arr:{ icon:"🌥️", temp:68, cond:"Overcast", wind:9, note:"Typical Lima overcast" },
@@ -28,7 +30,7 @@ const FLIGHTS = [
       transport:"Walk within terminal",
       security:"Immigration & passport control required",
       steps:[
-        { icon:"🛬", label:"Deplane at Terminal D", mins:5 },
+        { icon:"🛬", label:"Deplane at MIA Terminal D", mins:5 },
         { icon:"🛂", label:"Immigration & passport control", mins:25 },
         { icon:"🚶", label:"Walk to domestic gates", mins:5 },
       ],
@@ -37,8 +39,10 @@ const FLIGHTS = [
   {
     id:"f2", iata:"LA 2166", code:"LA", airline:"LATAM Airlines",
     dep:"LIM", arr:"CUZ", depTime:"11:40 PM", arrTime:"1:00 AM",
+    depFull:"Jorge Chávez Intl · Lima", arrFull:"Alejandro Velasco Astete · Cusco",
     status:"Scheduled", progress:0, gate:"TBD", terminal:"TBD",
     aircraft:"Airbus A319", date:"Apr 22–23, 2026", conf:"NATBMU",
+    leg:2, trip:"outbound",
     wx:{
       dep:{ icon:"🌥️", temp:66, cond:"Overcast", wind:8, note:"Normal Lima night" },
       arr:{ icon:"🌙", temp:44, cond:"Clear night", wind:5, note:"Cusco at 11,200ft — cold!" },
@@ -48,14 +52,16 @@ const FLIGHTS = [
   {
     id:"f3", iata:"H2 5012", code:"H2", airline:"Sky Airline",
     dep:"CUZ", arr:"LIM", depTime:"6:15 PM", arrTime:"8:00 PM",
+    depFull:"Alejandro Velasco Astete · Cusco", arrFull:"Jorge Chávez Intl · Lima",
     status:"Scheduled", progress:0, gate:"TBD", terminal:"TBD",
     aircraft:"Airbus A320", date:"Mon Apr 27, 2026", conf:"JNNAYS",
+    leg:3, trip:"return",
     wx:{
       dep:{ icon:"⛅", temp:55, cond:"Partly Cloudy", wind:10, note:"Watch for mountain weather" },
       arr:{ icon:"🌥️", temp:67, cond:"Overcast", wind:8, note:"Typical Lima evening" },
     },
     conn:{
-      from:"LIM Domestic", to:"LIM — AA 988",
+      from:"LIM Domestic Terminal", to:"LIM — AA 988",
       arrTerminal:"Domestic Terminal", arrGate:"TBD",
       depTerminal:"International Terminal", depGate:"TBD",
       walkMins:40, layoverMins:225, buffer:185,
@@ -71,8 +77,10 @@ const FLIGHTS = [
   {
     id:"f4", iata:"AA 988", code:"AA", airline:"American Airlines",
     dep:"LIM", arr:"MIA", depTime:"11:45 PM", arrTime:"6:40 AM",
+    depFull:"Jorge Chávez Intl · Lima", arrFull:"Miami Intl (MIA)",
     status:"Scheduled", progress:0, gate:"TBD", terminal:"TBD",
     aircraft:"Boeing 737", date:"Apr 27–28, 2026", conf:"GPHCIF",
+    leg:4, trip:"return",
     wx:{
       dep:{ icon:"🌙", temp:64, cond:"Clear night", wind:7, note:"Clear departure" },
       arr:{ icon:"🌤️", temp:79, cond:"Sunny", wind:14, note:"Morning arrival Miami" },
@@ -93,17 +101,28 @@ const LEAVE_CFG = {
   now:  { c:"#ff3a54", bg:"rgba(255,58,84,0.07)", br:"rgba(255,58,84,0.18)", icon:"🚨", label:"LEAVE NOW", time:"6:45 AM", sub:"Only 12 minutes!" },
 };
 
+const EMPLOYEES = [
+  { id:1, name:"Sarah Chen", dept:"Sales", avatar:"SC", color:"#00c8f0", flight:"AA 100", dep:"JFK", arr:"LAX", status:"Departed", eta:"11:45 AM", progress:62, gate:"B22", delay:0, phone:"(212) 555-0101" },
+  { id:2, name:"Marcus Lee", dept:"Eng", avatar:"ML", color:"#00e87a", flight:"DL 456", dep:"ATL", arr:"SFO", status:"On Time", eta:"2:30 PM", progress:0, gate:"D14", delay:0, phone:"(415) 555-0192" },
+  { id:3, name:"Priya Sharma", dept:"Sales", avatar:"PS", color:"#ffc800", flight:"UA 789", dep:"LAX", arr:"ORD", status:"Delayed", eta:"~5:45 PM", progress:0, gate:"C11", delay:55, phone:"(312) 555-0134" },
+  { id:4, name:"Tom Walsh", dept:"Exec", avatar:"TW", color:"#a78bfa", flight:"BA 178", dep:"LHR", arr:"JFK", status:"In Air", eta:"8:00 PM", progress:78, gate:"T7", delay:0, phone:"(646) 555-0177" },
+  { id:5, name:"Lisa Park", dept:"HR", avatar:"LP", color:"#ff5c2b", flight:"SW 321", dep:"DAL", arr:"MIA", status:"Cancelled", eta:"—", progress:0, gate:"—", delay:999, phone:"(305) 555-0155" },
+  { id:6, name:"James Rivera", dept:"Eng", avatar:"JR", color:"#00e87a", flight:"AA 200", dep:"BOS", arr:"DFW", status:"Landed", eta:"Arrived", progress:100, gate:"B8", delay:0, phone:"(972) 555-0188" },
+];
+
 function sc(s) {
   if(s==="On Time"||s==="Scheduled") return { c:"#00e87a", bg:"rgba(0,232,122,0.1)", br:"rgba(0,232,122,0.25)" };
-  if(s==="Departed") return { c:"#00c8f0", bg:"rgba(0,200,240,0.1)", br:"rgba(0,200,240,0.25)" };
+  if(s==="Departed"||s==="In Air") return { c:"#00c8f0", bg:"rgba(0,200,240,0.1)", br:"rgba(0,200,240,0.25)" };
   if(s==="Delayed") return { c:"#ffc800", bg:"rgba(255,200,0,0.1)", br:"rgba(255,200,0,0.25)" };
+  if(s==="Landed") return { c:"#00e87a", bg:"rgba(0,232,122,0.1)", br:"rgba(0,232,122,0.25)" };
   if(s==="Cancelled") return { c:"#ff3a54", bg:"rgba(255,58,84,0.1)", br:"rgba(255,58,84,0.25)" };
+  if(s==="Gate Change") return { c:"#a78bfa", bg:"rgba(167,139,250,0.1)", br:"rgba(167,139,250,0.25)" };
   return { c:"#7a9ab8", bg:"rgba(78,112,144,0.1)", br:"rgba(78,112,144,0.25)" };
 }
 
 function AirlineLogo({ code, size=26 }) {
   const [err, setErr] = useState(false);
-  const colors = { AA:"#0078D2", UA:"#005DAA", DL:"#C01933", LA:"#E31837", H2:"#FF6B00", BA:"#075AAA" };
+  const colors = { AA:"#0078D2", UA:"#005DAA", DL:"#C01933", LA:"#E31837", H2:"#FF6B00", BA:"#075AAA", SW:"#304CB2" };
   if (err) return <div style={{ width:size, height:size, borderRadius:7, background:colors[code]||"#334", display:"flex", alignItems:"center", justifyContent:"center", fontSize:size*0.38, fontWeight:800, color:"#fff", fontFamily:C.mono, flexShrink:0 }}>{code}</div>;
   return <img src={`https://airhex.com/images/airline-logos/${code.toLowerCase()}.png`} alt={code} onError={()=>setErr(true)} style={{ width:size, height:size, borderRadius:7, objectFit:"contain", background:"rgba(255,255,255,0.05)", padding:2, flexShrink:0 }}/>;
 }
@@ -116,20 +135,20 @@ function NavLogo({ app, size=28 }) {
 
 function StatusPill({ status }) {
   const s = sc(status);
-  return <span style={{ background:s.bg, border:`1px solid ${s.br}`, borderRadius:20, padding:"4px 12px", fontSize:12, color:s.c, fontWeight:700, fontFamily:C.mono, whiteSpace:"nowrap" }}>{status}</span>;
+  return <span style={{ background:s.bg, border:`1px solid ${s.br}`, borderRadius:20, padding:"4px 12px", fontSize:11, color:s.c, fontWeight:700, fontFamily:C.mono, whiteSpace:"nowrap" }}>{status}</span>;
 }
 
 function Arc({ progress=0, color="#00c8f0" }) {
-  const w=220, h=46, cx=w/2;
-  const px = 16+(progress/100)*(w-32);
-  const py = h-10-Math.sin((progress/100)*Math.PI)*20;
+  const w=200, h=44, cx=w/2;
+  const px = 14+(progress/100)*(w-28);
+  const py = h-10-Math.sin((progress/100)*Math.PI)*18;
   return (
     <svg width={w} height={h} style={{ overflow:"visible", display:"block", margin:"0 auto" }}>
-      <path d={`M 16 ${h-8} Q ${cx} ${h-40} ${w-16} ${h-8}`} fill="none" stroke="#13203a" strokeWidth="2" strokeDasharray="5 4"/>
-      {progress>0&&<path d={`M 16 ${h-8} Q ${cx} ${h-40} ${px} ${py}`} fill="none" stroke={color} strokeWidth="2" opacity="0.7"/>}
-      <circle cx="16" cy={h-8} r="5" fill="#090f1c" stroke={color} strokeWidth="2"/>
-      <circle cx={w-16} cy={h-8} r="5" fill="#090f1c" stroke={color} strokeWidth="2"/>
-      <text x={px} y={py} fontSize="20" textAnchor="middle" dominantBaseline="middle">✈</text>
+      <path d={`M 14 ${h-8} Q ${cx} ${h-38} ${w-14} ${h-8}`} fill="none" stroke="#13203a" strokeWidth="2" strokeDasharray="5 4"/>
+      {progress>0&&<path d={`M 14 ${h-8} Q ${cx} ${h-38} ${px} ${py}`} fill="none" stroke={color} strokeWidth="2" opacity="0.7"/>}
+      <circle cx="14" cy={h-8} r="5" fill="#090f1c" stroke={color} strokeWidth="2"/>
+      <circle cx={w-14} cy={h-8} r="5" fill="#090f1c" stroke={color} strokeWidth="2"/>
+      <text x={px} y={py} fontSize="18" textAnchor="middle" dominantBaseline="middle">✈</text>
     </svg>
   );
 }
@@ -141,20 +160,17 @@ function ConnBridge({ conn }) {
     : conn.buffer > 45
     ? { c:"#ffc800", bg:"rgba(255,200,0,0.07)", br:"rgba(255,200,0,0.25)", label:"⏰ Tight connection" }
     : { c:"#ff3a54", bg:"rgba(255,58,84,0.07)", br:"rgba(255,58,84,0.25)", label:"🚨 Very tight — rush!" };
-
   return (
     <div style={{ background:urgency.bg, borderRadius:16, border:`1px solid ${urgency.br}`, overflow:"hidden", marginBottom:12 }}>
       <div onClick={()=>setOpen(o=>!o)} style={{ padding:"13px 16px", display:"flex", alignItems:"center", gap:10, cursor:"pointer" }}>
         <div style={{ flex:1 }}>
           <div style={{ fontSize:14, fontWeight:700, color:urgency.c, marginBottom:3 }}>{urgency.label}</div>
-          <div style={{ fontSize:13, color:C.soft }}>{conn.walkMins} min transfer · {conn.buffer} min buffer · {conn.transport}</div>
+          <div style={{ fontSize:12, color:C.soft }}>{conn.walkMins} min transfer · {conn.buffer} min buffer · {conn.transport}</div>
         </div>
         <span style={{ fontSize:14, color:C.muted }}>{open?"▲":"▼"}</span>
       </div>
-
       {open&&(
         <div style={{ padding:"0 16px 16px", borderTop:`1px solid ${urgency.br}` }}>
-          {/* Stats */}
           <div style={{ display:"flex", marginBottom:16, paddingTop:14 }}>
             {[["LAYOVER",`${Math.floor(conn.layoverMins/60)}h${conn.layoverMins%60}m`,C.text],["WALKING",`${conn.walkMins}m`,C.yellow],["BUFFER",`${conn.buffer}m`,urgency.c]].map(([l,v,c],i)=>(
               <div key={l} style={{ flex:1, textAlign:"center", borderRight:i<2?`1px solid ${C.border}`:"none" }}>
@@ -163,8 +179,6 @@ function ConnBridge({ conn }) {
               </div>
             ))}
           </div>
-
-          {/* Terminal info */}
           <div style={{ background:C.surface, borderRadius:12, padding:"14px", marginBottom:12, border:`1px solid ${C.border}` }}>
             <div style={{ display:"flex", gap:14, marginBottom:12 }}>
               <div style={{ flex:1 }}>
@@ -183,8 +197,6 @@ function ConnBridge({ conn }) {
               <div style={{ fontSize:13, color:C.yellow, fontWeight:600 }}>⚠️ {conn.security}</div>
             </div>
           </div>
-
-          {/* Steps */}
           <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:1.5, marginBottom:10 }}>STEP BY STEP</div>
           {conn.steps.map((s,i)=>(
             <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 0", borderBottom:i<conn.steps.length-1?`1px solid ${C.border}`:"none" }}>
@@ -204,17 +216,15 @@ function AddModal({ onClose }) {
   const [date, setDate] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-
   function submit() {
     if (!num.trim()) { setErr("Enter a flight number e.g. AA 100"); return; }
     if (!date) { setErr("Pick a date"); return; }
     setBusy(true); setErr("");
-    setTimeout(()=>{ setBusy(false); alert(`Flight ${num.toUpperCase()} added!\nIn the live app this pulls real data.`); onClose(); }, 1400);
+    setTimeout(()=>{ setBusy(false); alert(`Flight ${num.toUpperCase()} added!\nIn the live app this pulls real data from OpenSky.`); onClose(); }, 1400);
   }
-
   return (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", zIndex:60, display:"flex", flexDirection:"column", justifyContent:"flex-end" }} onClick={onClose}>
-      <div onClick={e=>e.stopPropagation()} style={{ background:C.surface, borderTopLeftRadius:24, borderTopRightRadius:24, padding:"20px 20px 48px", border:`1px solid ${C.border}` }}>
+      <div onClick={e=>e.stopPropagation()} style={{ background:C.surface, borderTopLeftRadius:24, borderTopRightRadius:24, padding:"20px 20px 48px", border:`1px solid ${C.border}`, maxWidth:480, margin:"0 auto", width:"100%" }}>
         <div style={{ width:36, height:4, background:C.border, borderRadius:2, margin:"0 auto 18px" }}/>
         <div style={{ fontSize:22, fontWeight:800, color:C.text, marginBottom:6 }}>Track a Flight</div>
         <div style={{ fontSize:14, color:C.soft, marginBottom:22 }}>Enter your flight number and date.</div>
@@ -237,72 +247,191 @@ function AddModal({ onClose }) {
   );
 }
 
+function ShareModal({ onClose }) {
+  const autoMsg = `Landing LIM Terminal D at 8:30 PM on American Airlines AA 1307. Connecting via LIM — first leg lands 8:30 PM.`;
+  const [note, setNote] = useState("");
+  const [generated, setGenerated] = useState(false);
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", zIndex:60, display:"flex", flexDirection:"column", justifyContent:"flex-end" }} onClick={onClose}>
+      <div onClick={e=>e.stopPropagation()} style={{ background:C.surface, borderTopLeftRadius:24, borderTopRightRadius:24, padding:"20px 20px 48px", border:`1px solid ${C.border}`, maxWidth:480, margin:"0 auto", width:"100%" }}>
+        <div style={{ width:36, height:4, background:C.border, borderRadius:2, margin:"0 auto 18px" }}/>
+        <div style={{ fontSize:20, fontWeight:800, color:C.text, marginBottom:6 }}>Share Trip</div>
+        <div style={{ fontSize:13, color:C.soft, marginBottom:16 }}>Send a live tracking link to your pickup person</div>
+        <div style={{ background:C.card, borderRadius:12, padding:"13px 14px", marginBottom:14, border:`1px solid ${C.border}` }}>
+          <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:1, marginBottom:6 }}>AUTO-GENERATED MESSAGE</div>
+          <div style={{ fontSize:13, color:C.text, lineHeight:1.6 }}>{autoMsg}</div>
+        </div>
+        <div style={{ marginBottom:16 }}>
+          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:1.5, marginBottom:8 }}>ADD A PERSONAL NOTE (optional)</div>
+          <input value={note} onChange={e=>setNote(e.target.value)} placeholder="e.g. bring coffee ☕, I have 2 bags..."
+            style={{ width:"100%", background:C.card, border:`1.5px solid ${C.border}`, borderRadius:12, padding:"13px 14px", color:C.text, fontSize:14, outline:"none", boxSizing:"border-box" }}/>
+        </div>
+        {generated&&(
+          <div style={{ background:"rgba(0,232,122,0.08)", borderRadius:12, padding:"12px 14px", marginBottom:14, border:"1px solid rgba(0,232,122,0.25)" }}>
+            <div style={{ fontSize:12, color:C.green, marginBottom:4, fontWeight:700 }}>✅ Link generated!</div>
+            <div style={{ fontSize:13, color:C.text, fontFamily:C.mono }}>myrunwayapp.co/t/abc123k</div>
+          </div>
+        )}
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:12 }}>
+          {[["💬","WhatsApp","#25D366"],["✉️","iMessage","#34C759"],["📧","Email","#4285F4"],["🔗","Copy Link",C.accent]].map(([icon,label,color])=>(
+            <div key={label} onClick={()=>{ setGenerated(true); alert(`Sharing via ${label}...`); }} style={{ background:`${color}15`, border:`1px solid ${color}40`, borderRadius:12, padding:"12px 0", textAlign:"center", cursor:"pointer" }}>
+              <div style={{ fontSize:20, marginBottom:4 }}>{icon}</div>
+              <div style={{ fontSize:12, fontWeight:700, color }}>{label}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function FlightsScreen({ onTap, onAdd, leaveState, setLeaveState, navIdx, setNavIdx }) {
   const lc = LEAVE_CFG[leaveState];
   const app = NAV_APPS[navIdx];
+  const outbound = FLIGHTS.filter(f=>f.trip==="outbound");
+  const returnFlights = FLIGHTS.filter(f=>f.trip==="return");
 
   return (
     <div style={{ padding:"14px 14px 100px" }}>
-      {/* Outbound section */}
-      <div style={{ fontSize:11, color:C.orange, fontFamily:C.mono, fontWeight:700, letterSpacing:2, marginBottom:12 }}>OUTBOUND · APR 22</div>
 
-      {FLIGHTS.map((f,i)=>{
+      {/* Route pills — outbound and return */}
+      <div style={{ background:C.card, borderRadius:16, border:`1px solid ${C.border}`, padding:"14px", marginBottom:16 }}>
+        <div style={{ marginBottom:10 }}>
+          <div style={{ fontSize:10, color:C.orange, fontFamily:C.mono, fontWeight:700, letterSpacing:1.5, marginBottom:8 }}>OUTBOUND</div>
+          <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+            {outbound.map(f=>(
+              <div key={f.id} onClick={()=>onTap(f)} style={{ background:"rgba(0,232,122,0.1)", border:"1px solid rgba(0,232,122,0.3)", borderRadius:20, padding:"5px 12px", cursor:"pointer" }}>
+                <span style={{ fontSize:11, color:C.green, fontFamily:C.mono, fontWeight:700 }}>{f.iata} · {f.dep}–{f.arr}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div style={{ borderTop:`1px solid ${C.border}`, paddingTop:10 }}>
+          <div style={{ fontSize:10, color:C.accent, fontFamily:C.mono, fontWeight:700, letterSpacing:1.5, marginBottom:8 }}>RETURN</div>
+          <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+            {returnFlights.map(f=>(
+              <div key={f.id} onClick={()=>onTap(f)} style={{ background:"rgba(0,200,240,0.1)", border:"1px solid rgba(0,200,240,0.3)", borderRadius:20, padding:"5px 12px", cursor:"pointer" }}>
+                <span style={{ fontSize:11, color:C.accent, fontFamily:C.mono, fontWeight:700 }}>{f.iata} · {f.dep}–{f.arr}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        {/* Color legend */}
+        <div style={{ display:"flex", gap:12, marginTop:10, paddingTop:10, borderTop:`1px solid ${C.border}`, flexWrap:"wrap" }}>
+          {[["#00e87a","On Time"],["#ffc800","Delayed"],["#a78bfa","Gate Change"],["#ff3a54","Cancelled"]].map(([c,l])=>(
+            <div key={l} style={{ display:"flex", alignItems:"center", gap:5 }}>
+              <div style={{ width:8, height:8, borderRadius:4, background:c }}/>
+              <span style={{ fontSize:10, color:C.muted, fontFamily:C.mono }}>{l}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* OUTBOUND flights */}
+      <div style={{ fontSize:11, color:C.orange, fontFamily:C.mono, fontWeight:700, letterSpacing:2, marginBottom:12 }}>OUTBOUND · APR 22 · 2 FLIGHTS</div>
+      {outbound.map((f,i)=>{
         const s=sc(f.status);
         return (
           <div key={f.id}>
-            {i===2&&<div style={{ fontSize:11, color:C.accent, fontFamily:C.mono, fontWeight:700, letterSpacing:2, marginTop:20, marginBottom:12 }}>RETURN · APR 27</div>}
-
-            <div onClick={()=>onTap(f)} style={{ background:C.card, borderRadius:20, border:`1px solid ${C.border}`, padding:16, marginBottom:10, cursor:"pointer" }}>
-              {/* Airline header */}
+            <div onClick={()=>onTap(f)} style={{ background:C.card, borderRadius:20, border:`1px solid ${f.status==="Delayed"?"rgba(255,200,0,0.3)":f.status==="Gate Change"?"rgba(167,139,250,0.3)":C.border}`, padding:16, marginBottom:10, cursor:"pointer" }}>
               <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:14 }}>
                 <AirlineLogo code={f.code} size={30}/>
                 <div style={{ flex:1 }}>
                   <div style={{ fontSize:16, fontWeight:800, color:C.text, fontFamily:C.mono }}>{f.iata}</div>
-                  <div style={{ fontSize:12, color:C.soft }}>{f.airline}</div>
+                  <div style={{ fontSize:12, color:C.soft }}>{f.airline} · {f.aircraft}</div>
                 </div>
                 <StatusPill status={f.status}/>
               </div>
-
-              {/* Route with centered arc */}
               <div style={{ display:"flex", alignItems:"center", marginBottom:14 }}>
                 <div style={{ textAlign:"center", minWidth:60 }}>
                   <div style={{ fontSize:30, fontWeight:800, color:C.text, fontFamily:C.mono, lineHeight:1 }}>{f.dep}</div>
-                  <div style={{ fontSize:12, color:C.soft, fontFamily:C.mono, marginTop:4 }}>{f.depTime}</div>
+                  <div style={{ fontSize:12, color:C.soft, marginTop:4 }}>{f.depTime}</div>
                 </div>
                 <div style={{ flex:1, display:"flex", justifyContent:"center" }}>
                   <Arc progress={f.progress} color={s.c}/>
                 </div>
                 <div style={{ textAlign:"center", minWidth:60 }}>
                   <div style={{ fontSize:30, fontWeight:800, color:C.text, fontFamily:C.mono, lineHeight:1 }}>{f.arr}</div>
-                  <div style={{ fontSize:12, color:C.soft, fontFamily:C.mono, marginTop:4 }}>{f.arrTime}</div>
+                  <div style={{ fontSize:12, color:C.soft, marginTop:4 }}>{f.arrTime}</div>
                 </div>
               </div>
-
-              {/* Info pills centered */}
               <div style={{ display:"flex", gap:6, flexWrap:"wrap", justifyContent:"center", marginBottom:f.wx?12:0 }}>
                 <span style={{ background:C.surface, borderRadius:8, padding:"5px 11px", fontSize:12, color:C.soft, border:`1px solid ${C.border}` }}>Gate <b style={{ color:C.text, fontFamily:C.mono }}>{f.gate}</b></span>
-                <span style={{ background:C.surface, borderRadius:8, padding:"5px 11px", fontSize:12, color:C.soft, border:`1px solid ${C.border}` }}>T <b style={{ color:C.text, fontFamily:C.mono }}>{f.terminal}</b></span>
+                <span style={{ background:C.surface, borderRadius:8, padding:"5px 11px", fontSize:12, color:C.soft, border:`1px solid ${C.border}` }}>Terminal <b style={{ color:C.text, fontFamily:C.mono }}>{f.terminal}</b></span>
                 {f.conf&&<span style={{ background:"rgba(167,139,250,0.1)", borderRadius:8, padding:"5px 11px", fontSize:12, color:C.purple, border:"1px solid rgba(167,139,250,0.25)", fontFamily:C.mono }}>CONF# {f.conf}</span>}
                 {f.date&&<span style={{ background:C.surface, borderRadius:8, padding:"5px 11px", fontSize:12, color:C.soft, border:`1px solid ${C.border}` }}>{f.date}</span>}
               </div>
-
-              {/* Weather */}
               {f.wx&&(
                 <div style={{ display:"flex", gap:8, paddingTop:12, borderTop:`1px solid ${C.border}` }}>
                   {[["dep",f.dep,f.wx.dep],["arr",f.arr,f.wx.arr]].map(([type,code,w])=>(
                     <div key={type} style={{ flex:1, display:"flex", alignItems:"center", gap:8, background:C.surface, borderRadius:11, padding:"10px 12px", border:`1px solid ${C.border}` }}>
                       <span style={{ fontSize:20 }}>{w.icon}</span>
                       <div style={{ flex:1 }}>
-                        <div style={{ fontSize:11, color:C.soft, fontFamily:C.mono, marginBottom:2 }}>{code}</div>
+                        <div style={{ fontSize:11, color:C.soft, marginBottom:2 }}>{code}</div>
                         <div style={{ fontSize:14, fontWeight:700, color:C.text }}>{w.temp}° <span style={{ fontSize:12, color:C.soft, fontWeight:400 }}>{w.cond}</span></div>
+                        <div style={{ fontSize:11, color:C.muted }}>💨 {w.wind}mph</div>
                       </div>
                     </div>
                   ))}
                 </div>
               )}
             </div>
+            {i<outbound.length-1&&outbound[i+1]&&FLIGHTS[i+1].conn&&<ConnBridge conn={FLIGHTS[i+1].conn}/>}
+          </div>
+        );
+      })}
 
-            {i<FLIGHTS.length-1&&FLIGHTS[i+1].conn&&<ConnBridge conn={FLIGHTS[i+1].conn}/>}
+      {/* RETURN flights */}
+      <div style={{ fontSize:11, color:C.accent, fontFamily:C.mono, fontWeight:700, letterSpacing:2, marginTop:20, marginBottom:12 }}>RETURN · APR 27 · 2 FLIGHTS</div>
+      {returnFlights.map((f,i)=>{
+        const s=sc(f.status);
+        const globalIdx = FLIGHTS.findIndex(x=>x.id===f.id);
+        return (
+          <div key={f.id}>
+            <div onClick={()=>onTap(f)} style={{ background:C.card, borderRadius:20, border:`1px solid ${f.status==="Delayed"?"rgba(255,200,0,0.3)":C.border}`, padding:16, marginBottom:10, cursor:"pointer" }}>
+              <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:14 }}>
+                <AirlineLogo code={f.code} size={30}/>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:16, fontWeight:800, color:C.text, fontFamily:C.mono }}>{f.iata}</div>
+                  <div style={{ fontSize:12, color:C.soft }}>{f.airline} · {f.aircraft}</div>
+                </div>
+                <StatusPill status={f.status}/>
+              </div>
+              <div style={{ display:"flex", alignItems:"center", marginBottom:14 }}>
+                <div style={{ textAlign:"center", minWidth:60 }}>
+                  <div style={{ fontSize:30, fontWeight:800, color:C.text, fontFamily:C.mono, lineHeight:1 }}>{f.dep}</div>
+                  <div style={{ fontSize:12, color:C.soft, marginTop:4 }}>{f.depTime}</div>
+                </div>
+                <div style={{ flex:1, display:"flex", justifyContent:"center" }}>
+                  <Arc progress={f.progress} color={s.c}/>
+                </div>
+                <div style={{ textAlign:"center", minWidth:60 }}>
+                  <div style={{ fontSize:30, fontWeight:800, color:C.text, fontFamily:C.mono, lineHeight:1 }}>{f.arr}</div>
+                  <div style={{ fontSize:12, color:C.soft, marginTop:4 }}>{f.arrTime}</div>
+                </div>
+              </div>
+              <div style={{ display:"flex", gap:6, flexWrap:"wrap", justifyContent:"center", marginBottom:f.wx?12:0 }}>
+                <span style={{ background:C.surface, borderRadius:8, padding:"5px 11px", fontSize:12, color:C.soft, border:`1px solid ${C.border}` }}>Gate <b style={{ color:C.text, fontFamily:C.mono }}>{f.gate}</b></span>
+                <span style={{ background:C.surface, borderRadius:8, padding:"5px 11px", fontSize:12, color:C.soft, border:`1px solid ${C.border}` }}>Terminal <b style={{ color:C.text, fontFamily:C.mono }}>{f.terminal}</b></span>
+                {f.conf&&<span style={{ background:"rgba(167,139,250,0.1)", borderRadius:8, padding:"5px 11px", fontSize:12, color:C.purple, border:"1px solid rgba(167,139,250,0.25)", fontFamily:C.mono }}>CONF# {f.conf}</span>}
+                {f.date&&<span style={{ background:C.surface, borderRadius:8, padding:"5px 11px", fontSize:12, color:C.soft, border:`1px solid ${C.border}` }}>{f.date}</span>}
+              </div>
+              {f.wx&&(
+                <div style={{ display:"flex", gap:8, paddingTop:12, borderTop:`1px solid ${C.border}` }}>
+                  {[["dep",f.dep,f.wx.dep],["arr",f.arr,f.wx.arr]].map(([type,code,w])=>(
+                    <div key={type} style={{ flex:1, display:"flex", alignItems:"center", gap:8, background:C.surface, borderRadius:11, padding:"10px 12px", border:`1px solid ${C.border}` }}>
+                      <span style={{ fontSize:20 }}>{w.icon}</span>
+                      <div style={{ flex:1 }}>
+                        <div style={{ fontSize:11, color:C.soft, marginBottom:2 }}>{code}</div>
+                        <div style={{ fontSize:14, fontWeight:700, color:C.text }}>{w.temp}° <span style={{ fontSize:12, color:C.soft, fontWeight:400 }}>{w.cond}</span></div>
+                        <div style={{ fontSize:11, color:C.muted }}>💨 {w.wind}mph</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            {f.conn&&<ConnBridge conn={f.conn}/>}
           </div>
         );
       })}
@@ -348,7 +477,7 @@ function FlightsScreen({ onTap, onAdd, leaveState, setLeaveState, navIdx, setNav
               );
             })}
           </div>
-          <div onClick={()=>alert(`Opening ${app.label} → Miami International Airport`)} style={{ background:`linear-gradient(135deg,${app.color},${app.color}bb)`, borderRadius:14, padding:"15px 0", display:"flex", alignItems:"center", justifyContent:"center", gap:10, cursor:"pointer" }}>
+          <div onClick={()=>alert(`Opening ${app.label} → Miami International Airport (MIA)`)} style={{ background:`linear-gradient(135deg,${app.color},${app.color}bb)`, borderRadius:14, padding:"15px 0", display:"flex", alignItems:"center", justifyContent:"center", gap:10, cursor:"pointer" }}>
             <NavLogo app={app} size={22}/>
             <span style={{ fontSize:15, fontWeight:800, color:"#000" }}>Get Directions in {app.label}</span>
           </div>
@@ -371,9 +500,29 @@ function WeatherScreen() {
   });
   return (
     <div style={{ padding:"14px 14px 100px" }}>
+      <div style={{ background:C.card, borderRadius:16, border:`1px solid ${C.border}`, padding:"14px 16px", marginBottom:16 }}>
+        <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:12 }}>YOUR ROUTE</div>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-around", flexWrap:"wrap", gap:8 }}>
+          {airports.map((a,i)=>{
+            const w=a.wx; if(!w) return null;
+            return (
+              <div key={a.code} style={{ display:"flex", alignItems:"center" }}>
+                <div style={{ textAlign:"center" }}>
+                  <span style={{ fontSize:28 }}>{w.icon}</span>
+                  <div style={{ fontSize:16, fontWeight:800, color:C.text, fontFamily:C.mono, marginTop:3 }}>{a.code}</div>
+                  <div style={{ fontSize:14, fontWeight:700, color:C.text }}>{w.temp}°F</div>
+                  <div style={{ background:"rgba(0,232,122,0.1)", borderRadius:8, padding:"2px 8px", display:"inline-block", marginTop:4 }}>
+                    <span style={{ fontSize:9, color:C.green, fontFamily:C.mono, fontWeight:700 }}>LOW</span>
+                  </div>
+                </div>
+                {i<airports.length-1&&<span style={{ fontSize:16, color:C.muted, padding:"0 8px" }}>→</span>}
+              </div>
+            );
+          })}
+        </div>
+      </div>
       {airports.map(a=>{
         const w=a.wx; if(!w) return null;
-        const ic=w.impact==="HIGH"?"#ff3a54":w.impact==="MED"?"#ffc800":"#00e87a";
         return (
           <div key={a.code} style={{ background:C.card, borderRadius:18, border:`1px solid ${C.border}`, padding:18, marginBottom:12 }}>
             <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:1.5, marginBottom:12 }}>{a.type==="dep"?"🛫 DEPARTING FROM":"🛬 ARRIVING INTO"} · {a.flight}</div>
@@ -382,7 +531,7 @@ function WeatherScreen() {
               <div>
                 <div style={{ fontSize:44, fontFamily:C.display, color:C.text, lineHeight:1, marginBottom:4 }}>{w.temp}°F</div>
                 <div style={{ fontSize:15, color:C.soft }}>{w.cond}</div>
-                <div style={{ fontSize:13, color:C.muted }}>💨 {w.wind}mph</div>
+                <div style={{ fontSize:13, color:C.muted }}>💨 {w.wind}mph wind</div>
               </div>
             </div>
             <div style={{ background:"rgba(0,232,122,0.08)", borderRadius:11, padding:"11px 14px", border:"1px solid rgba(0,232,122,0.2)", display:"flex", alignItems:"center", gap:10 }}>
@@ -399,9 +548,9 @@ function WeatherScreen() {
 function FamilyScreen() {
   const [sel, setSel] = useState(null);
   const people = [
-    { name:"Mom", initials:"M", color:"#a78bfa", flight:"DL 204", dep:"ATL", arr:"JFK", status:"On Time", eta:"4:20 PM" },
-    { name:"Jake", initials:"J", color:"#00e87a", flight:"SW 881", dep:"ORD", arr:"LAX", status:"Departed", eta:"3:15 PM" },
-    { name:"Sarah", initials:"S", color:"#ff5c2b", flight:"BA 178", dep:"LHR", arr:"JFK", status:"Delayed", eta:"8:00 PM" },
+    { name:"Mom", initials:"M", color:"#a78bfa", flight:"DL 204", dep:"ATL", arr:"JFK", status:"On Time", eta:"4:20 PM", progress:0 },
+    { name:"Jake", initials:"J", color:"#00e87a", flight:"SW 881", dep:"ORD", arr:"LAX", status:"Departed", eta:"3:15 PM", progress:45 },
+    { name:"Sarah", initials:"S", color:"#ff5c2b", flight:"BA 178", dep:"LHR", arr:"JFK", status:"Delayed", eta:"8:00 PM", progress:70 },
   ];
   return (
     <div style={{ padding:"14px 14px 100px" }}>
@@ -462,8 +611,16 @@ function PassportScreen() {
           </div>
         ))}
       </div>
+      <div style={{ background:C.card, borderRadius:16, border:`1px solid ${C.border}`, padding:"16px", marginBottom:12 }}>
+        <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:12 }}>2026 SO FAR</div>
+        <div style={{ display:"flex", gap:24 }}>
+          <div><div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, marginBottom:4 }}>FLIGHTS</div><div style={{ fontSize:28, fontWeight:800, color:C.accent, fontFamily:C.mono }}>{p.yr.flights}</div></div>
+          <div><div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, marginBottom:4 }}>MILES</div><div style={{ fontSize:28, fontWeight:800, color:C.orange, fontFamily:C.mono }}>{p.yr.miles.toLocaleString()}</div></div>
+          <div style={{ flex:1 }}><div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, marginBottom:4 }}>TOP AIRLINE</div><div style={{ fontSize:13, fontWeight:700, color:C.text, marginTop:4 }}>{p.airline}</div></div>
+        </div>
+      </div>
       <div style={{ background:C.card, borderRadius:16, border:`1px solid ${C.border}`, padding:"16px" }}>
-        <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:12 }}>ACHIEVEMENTS</div>
+        <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:12 }}>ACHIEVEMENTS</div>
         <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
           {p.badges.map(b=><div key={b} style={{ background:"rgba(167,139,250,0.1)", border:"1px solid rgba(167,139,250,0.25)", borderRadius:20, padding:"7px 14px", fontSize:13, color:C.purple, fontWeight:600 }}>{b}</div>)}
           <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:20, padding:"7px 14px", fontSize:13, color:C.muted }}>🔒 5 more</div>
@@ -476,24 +633,27 @@ function PassportScreen() {
 function PlansScreen() {
   const tiers = [
     { id:"free", name:"Free", price:"$0", period:"forever", color:C.soft, bg:"rgba(78,112,144,0.08)", border:"rgba(78,112,144,0.2)", tag:null,
-      features:["Track up to 2 flights","Basic status updates","Leave-by time","Share 1 trip link"], missing:["Family tracking","Unlimited flights","Corporate dashboard"],
+      features:["Track up to 2 flights","Basic status updates","Leave-by time","Share 1 trip link"], missing:["Family tracking","Unlimited flights","Corporate dashboard","Priority support"],
       cta:"Current Plan", ctaStyle:{ background:C.surface, color:C.soft, border:`1px solid ${C.border}` } },
     { id:"pro", name:"Pro", price:"$19.99", period:"per year", color:C.accent, bg:"rgba(0,200,240,0.08)", border:"rgba(0,200,240,0.28)", tag:"MOST POPULAR",
-      features:["Unlimited flight tracking","Family tracker","Unlimited share links","AI delay explanations","Weather alerts","Priority support"], missing:[],
+      features:["Unlimited flight tracking","Family tracker (5 members)","Unlimited share links","AI delay explanations","Weather alerts","VIP lounge finder","Priority support"], missing:[],
       cta:"Upgrade to Pro", ctaStyle:{ background:`linear-gradient(135deg,${C.accent},#007aaa)`, color:"#000" } },
     { id:"corporate", name:"Corporate", price:"$9", period:"per seat/month", color:C.purple, bg:"rgba(167,139,250,0.08)", border:"rgba(167,139,250,0.28)", tag:"FOR TEAMS",
-      features:["Everything in Pro","Admin dashboard","Manager delay alerts","SSO login","Expense integration"], missing:[],
+      features:["Everything in Pro","Admin dashboard","All employee flights","Manager delay alerts","CSV bulk import","SSO login (Google/Microsoft)","Expense integration","Dedicated account manager"], missing:[],
       cta:"Contact Sales", ctaStyle:{ background:`linear-gradient(135deg,${C.purple},#7c3aed)`, color:"#fff" } },
   ];
   return (
     <div style={{ padding:"14px 14px 100px" }}>
+      <div style={{ textAlign:"center", marginBottom:20 }}>
+        <div style={{ fontSize:13, color:C.soft, lineHeight:1.6 }}>Start free. Upgrade when ready.<br/>Cancel anytime.</div>
+      </div>
       {tiers.map(t=>(
         <div key={t.id} style={{ background:t.bg, borderRadius:20, border:`2px solid ${t.border}`, padding:"20px 16px", marginBottom:16, position:"relative" }}>
           {t.tag&&<div style={{ position:"absolute", top:-13, left:"50%", transform:"translateX(-50%)", background:t.color, borderRadius:20, padding:"4px 16px", fontSize:11, fontWeight:800, color:"#000", fontFamily:C.mono, letterSpacing:1, whiteSpace:"nowrap" }}>{t.tag}</div>}
           <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:16, marginTop:t.tag?8:0 }}>
             <div>
               <div style={{ fontSize:22, fontWeight:800, color:t.color, marginBottom:2 }}>{t.name}</div>
-              <div style={{ fontSize:12, color:C.soft }}>Billed annually</div>
+              <div style={{ fontSize:12, color:C.soft }}>{t.id==="corporate"?"Billed annually · min 5 seats":"Billed annually"}</div>
             </div>
             <div style={{ textAlign:"right" }}>
               <div style={{ fontSize:36, fontWeight:800, color:C.text, fontFamily:C.mono, lineHeight:1 }}>{t.price}</div>
@@ -508,6 +668,159 @@ function PlansScreen() {
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+function CorporateDashboard({ onClose }) {
+  const [filter, setFilter] = useState("all");
+  const [selEmp, setSelEmp] = useState(null);
+  const filtered = filter==="all"?EMPLOYEES:filter==="issue"?EMPLOYEES.filter(e=>e.delay>0||e.status==="Cancelled"):EMPLOYEES.filter(e=>e.dept===filter);
+  const delayed=EMPLOYEES.filter(e=>e.delay>0).length;
+  const cancelled=EMPLOYEES.filter(e=>e.status==="Cancelled").length;
+  const inAir=EMPLOYEES.filter(e=>e.status==="Departed"||e.status==="In Air").length;
+  const onTime=EMPLOYEES.filter(e=>e.status==="On Time"||e.status==="Landed").length;
+
+  if (selEmp) {
+    const s=sc(selEmp.status);
+    return (
+      <div style={{ position:"fixed", inset:0, background:C.bg, zIndex:50, overflowY:"auto" }}>
+        <div style={{ background:"rgba(4,7,14,0.98)", borderBottom:`1px solid ${C.border}`, padding:"14px 16px", display:"flex", alignItems:"center", gap:10, position:"sticky", top:0 }}>
+          <div onClick={()=>setSelEmp(null)} style={{ width:34, height:34, borderRadius:17, background:C.surface, border:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", fontSize:18, color:C.accent }}>←</div>
+          <span style={{ fontSize:16, fontWeight:800, color:C.text }}>{selEmp.name}</span>
+        </div>
+        <div style={{ padding:"16px 16px 100px" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:14, marginBottom:20 }}>
+            <div style={{ width:56, height:56, borderRadius:28, background:`${selEmp.color}22`, border:`2px solid ${selEmp.color}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, fontWeight:800, color:selEmp.color, fontFamily:C.mono }}>{selEmp.avatar}</div>
+            <div>
+              <div style={{ fontSize:20, fontWeight:800, color:C.text }}>{selEmp.name}</div>
+              <div style={{ fontSize:13, color:C.soft }}>{selEmp.dept} · {selEmp.phone}</div>
+            </div>
+          </div>
+          <div style={{ background:C.card, borderRadius:18, border:`1px solid ${C.border}`, padding:16, marginBottom:12 }}>
+            <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12 }}>
+              <div style={{ fontSize:18, fontWeight:800, color:C.text, fontFamily:C.mono, flex:1 }}>{selEmp.flight}</div>
+              <StatusPill status={selEmp.status}/>
+            </div>
+            <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:12 }}>
+              <div style={{ fontSize:24, fontWeight:800, color:C.text, fontFamily:C.mono }}>{selEmp.dep}</div>
+              <div style={{ flex:1, height:2, background:C.border, borderRadius:1, position:"relative" }}>
+                {selEmp.progress>0&&<div style={{ height:2, width:`${selEmp.progress}%`, background:`linear-gradient(90deg,${C.accent},${C.orange})`, borderRadius:1 }}/>}
+                <span style={{ position:"absolute", top:"50%", left:`${Math.max(5,Math.min(90,selEmp.progress))}%`, transform:"translate(-50%,-50%)", fontSize:16 }}>✈</span>
+              </div>
+              <div style={{ fontSize:24, fontWeight:800, color:C.text, fontFamily:C.mono }}>{selEmp.arr}</div>
+            </div>
+            {[["ETA",selEmp.eta],["Gate",selEmp.gate],["Delay",selEmp.delay>0?`+${selEmp.delay} min`:"None"]].map(([l,v],i)=>(
+              <div key={l} style={{ display:"flex", justifyContent:"space-between", padding:"8px 0", borderTop:`1px solid ${C.border}` }}>
+                <span style={{ fontSize:13, color:C.soft }}>{l}</span>
+                <span style={{ fontSize:13, fontWeight:700, color:l==="Delay"&&selEmp.delay>0?C.yellow:C.text, fontFamily:C.mono }}>{v}</span>
+              </div>
+            ))}
+          </div>
+          {selEmp.status==="Cancelled"&&(
+            <div style={{ background:"rgba(255,58,84,0.08)", border:"1px solid rgba(255,58,84,0.25)", borderRadius:14, padding:"14px", marginBottom:12 }}>
+              <div style={{ fontSize:14, fontWeight:800, color:C.red, marginBottom:6 }}>⚠️ Flight Cancelled</div>
+              <div onClick={()=>alert("Alerting travel manager...")} style={{ background:`linear-gradient(135deg,${C.orange},#cc3300)`, borderRadius:11, padding:"12px 0", textAlign:"center", fontWeight:800, fontSize:13, color:"#fff", cursor:"pointer" }}>Alert Travel Manager →</div>
+            </div>
+          )}
+          {selEmp.delay>0&&(
+            <div style={{ background:"rgba(255,200,0,0.07)", border:"1px solid rgba(255,200,0,0.22)", borderRadius:14, padding:"14px", marginBottom:12 }}>
+              <div style={{ fontSize:14, fontWeight:800, color:C.yellow, marginBottom:6 }}>⏰ Delayed {selEmp.delay} min</div>
+              <div onClick={()=>alert("Sending delay notification...")} style={{ background:`linear-gradient(135deg,${C.yellow},#cc9900)`, borderRadius:11, padding:"12px 0", textAlign:"center", fontWeight:800, fontSize:13, color:"#000", cursor:"pointer" }}>Notify Manager →</div>
+            </div>
+          )}
+          <div style={{ display:"flex", gap:10 }}>
+            {[["📞","Call"],["💬","Message"],["🔗","Track"]].map(([icon,label])=>(
+              <div key={label} onClick={()=>alert(`${label}ing ${selEmp.name}...`)} style={{ flex:1, background:C.card, border:`1px solid ${C.border}`, borderRadius:12, padding:"12px 0", textAlign:"center", cursor:"pointer" }}>
+                <div style={{ fontSize:20, marginBottom:3 }}>{icon}</div>
+                <div style={{ fontSize:12, fontWeight:700, color:C.soft }}>{label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:C.bg, zIndex:50, overflowY:"auto" }}>
+      <div style={{ background:"rgba(4,7,14,0.98)", borderBottom:`1px solid ${C.border}`, padding:"14px 16px", display:"flex", alignItems:"center", gap:10, position:"sticky", top:0 }}>
+        <div onClick={onClose} style={{ width:34, height:34, borderRadius:17, background:C.surface, border:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", fontSize:18, color:C.accent }}>←</div>
+        <div style={{ flex:1 }}>
+          <div style={{ fontSize:16, fontWeight:800, color:C.text }}>Corporate Dashboard</div>
+          <div style={{ fontSize:12, color:C.soft }}>Acme Corp · 6 traveling today</div>
+        </div>
+        <div style={{ background:"rgba(167,139,250,0.1)", border:"1px solid rgba(167,139,250,0.25)", borderRadius:8, padding:"4px 10px", fontSize:10, fontWeight:700, color:C.purple, fontFamily:C.mono }}>CORP</div>
+      </div>
+      <div style={{ padding:"14px 14px 100px" }}>
+        {(delayed>0||cancelled>0)&&(
+          <div style={{ background:"rgba(255,58,84,0.08)", border:"1px solid rgba(255,58,84,0.25)", borderRadius:14, padding:"12px 14px", marginBottom:14, display:"flex", gap:10, alignItems:"center" }}>
+            <span style={{ fontSize:20 }}>🚨</span>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:13, fontWeight:700, color:C.red, marginBottom:1 }}>Action needed</div>
+              <div style={{ fontSize:12, color:C.soft }}>{cancelled>0?`${cancelled} cancellation · `:""}{delayed>0?`${delayed} delayed`:""}</div>
+            </div>
+            <div onClick={()=>setFilter("issue")} style={{ background:C.red, borderRadius:8, padding:"6px 10px", cursor:"pointer" }}>
+              <span style={{ fontSize:11, fontWeight:800, color:"#fff" }}>Review</span>
+            </div>
+          </div>
+        )}
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:8, marginBottom:14 }}>
+          {[["✈️","In Air",inAir,C.accent],["✅","On Time",onTime,C.green],["⏰","Delayed",delayed,C.yellow],["❌","Cancelled",cancelled,C.red]].map(([icon,label,val,color])=>(
+            <div key={label} style={{ background:C.card, borderRadius:12, border:`1px solid ${C.border}`, padding:"10px 6px", textAlign:"center" }}>
+              <div style={{ fontSize:16, marginBottom:3 }}>{icon}</div>
+              <div style={{ fontSize:20, fontWeight:800, color, fontFamily:C.mono, lineHeight:1, marginBottom:2 }}>{val}</div>
+              <div style={{ fontSize:9, color:C.muted, fontFamily:C.mono }}>{label}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{ display:"flex", gap:6, marginBottom:14, flexWrap:"wrap" }}>
+          {[["all","All"],["issue","🚨 Issues"],["Sales","Sales"],["Eng","Eng"],["Exec","Exec"]].map(([id,label])=>(
+            <div key={id} onClick={()=>setFilter(id)} style={{ padding:"5px 12px", borderRadius:20, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:C.mono, background:filter===id?"rgba(0,200,240,0.12)":"transparent", color:filter===id?C.accent:C.soft, border:`1px solid ${filter===id?"rgba(0,200,240,0.3)":C.border}` }}>
+              {label}
+            </div>
+          ))}
+        </div>
+        {filtered.map(emp=>{
+          const s=sc(emp.status);
+          const hasIssue=emp.delay>0||emp.status==="Cancelled";
+          return (
+            <div key={emp.id} onClick={()=>setSelEmp(emp)} style={{ background:C.card, borderRadius:16, border:`1px solid ${hasIssue?(emp.status==="Cancelled"?"rgba(255,58,84,0.3)":"rgba(255,200,0,0.25)"):C.border}`, padding:"12px 14px", marginBottom:8, cursor:"pointer" }}>
+              <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                <div style={{ width:38, height:38, borderRadius:19, background:`${emp.color}22`, border:`2px solid ${emp.color}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, fontWeight:800, color:emp.color, fontFamily:C.mono, flexShrink:0 }}>{emp.avatar}</div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:2 }}>
+                    <span style={{ fontSize:14, fontWeight:800, color:C.text }}>{emp.name}</span>
+                    <span style={{ fontSize:9, color:C.muted, background:C.surface, borderRadius:4, padding:"1px 5px", fontFamily:C.mono }}>{emp.dept}</span>
+                  </div>
+                  <div style={{ fontSize:11, color:C.soft, fontFamily:C.mono }}>{emp.flight} · {emp.dep} → {emp.arr}</div>
+                </div>
+                <div style={{ textAlign:"right", flexShrink:0 }}>
+                  <div style={{ background:s.bg, border:`1px solid ${s.br}`, borderRadius:20, padding:"2px 8px", fontSize:9, color:s.c, fontWeight:700, fontFamily:C.mono, marginBottom:3 }}>{emp.status}</div>
+                  {emp.delay>0&&<div style={{ fontSize:10, color:C.yellow, fontFamily:C.mono }}>+{emp.delay}m</div>}
+                  {emp.status==="Cancelled"&&<div style={{ fontSize:10, color:C.red }}>Needs rebooking</div>}
+                  {!emp.delay&&emp.status!=="Cancelled"&&<div style={{ fontSize:10, color:C.muted }}>{emp.eta}</div>}
+                </div>
+              </div>
+              {emp.progress>0&&emp.progress<100&&(
+                <div style={{ height:2.5, background:C.surface, borderRadius:2, overflow:"hidden", marginTop:8 }}>
+                  <div style={{ height:2.5, width:`${emp.progress}%`, background:`linear-gradient(90deg,${C.accent},${C.orange})`, borderRadius:2 }}/>
+                </div>
+              )}
+            </div>
+          );
+        })}
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginTop:8 }}>
+          <div onClick={()=>alert("Exporting travel report...")} style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:"14px", textAlign:"center", cursor:"pointer" }}>
+            <div style={{ fontSize:22, marginBottom:5 }}>📊</div>
+            <div style={{ fontSize:13, fontWeight:700, color:C.text }}>Export Report</div>
+          </div>
+          <div onClick={()=>alert("Opening settings...")} style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:"14px", textAlign:"center", cursor:"pointer" }}>
+            <div style={{ fontSize:22, marginBottom:5 }}>⚙️</div>
+            <div style={{ fontSize:13, fontWeight:700, color:C.text }}>Settings</div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -538,6 +851,8 @@ function BottomNav({ active, onNav }) {
 export default function MyRunway() {
   const [tab, setTab] = useState("flights");
   const [showAdd, setShowAdd] = useState(false);
+  const [showShare, setShowShare] = useState(false);
+  const [showCorp, setShowCorp] = useState(false);
   const [leaveState, setLeaveState] = useState("later");
   const [navIdx, setNavIdx] = useState(0);
   const [tick, setTick] = useState(0);
@@ -554,8 +869,18 @@ export default function MyRunway() {
           <div style={{ width:10, height:10, borderRadius:5, background:C.orange, boxShadow:tick%2===0?`0 0 14px ${C.orange}`:"none", transition:"box-shadow 1.5s" }}/>
           <span style={{ fontFamily:C.display, fontSize:24, color:C.accent, letterSpacing:5 }}>MY RUNWAY</span>
         </div>
-        <div onClick={()=>setShowAdd(true)} style={{ background:`linear-gradient(135deg,${C.accent},#007aaa)`, borderRadius:10, padding:"9px 16px", cursor:"pointer" }}>
-          <span style={{ fontSize:14, color:"#000", fontWeight:800 }}>+ Add Flight</span>
+        <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+          <div onClick={()=>setShowAdd(true)} style={{ background:`linear-gradient(135deg,${C.accent},#007aaa)`, borderRadius:10, padding:"9px 14px", cursor:"pointer" }}>
+            <span style={{ fontSize:13, color:"#000", fontWeight:800 }}>+ Add Flight</span>
+          </div>
+          <div onClick={()=>setShowCorp(true)} style={{ background:"rgba(167,139,250,0.08)", border:"1px solid rgba(167,139,250,0.25)", borderRadius:10, padding:"9px 12px", cursor:"pointer", display:"flex", alignItems:"center", gap:4 }}>
+            <span style={{ fontSize:13 }}>🏢</span>
+            <span style={{ fontSize:12, fontWeight:700, color:C.purple }}>Corp</span>
+          </div>
+          <div onClick={()=>setShowShare(true)} style={{ background:"rgba(0,200,240,0.07)", border:"1px solid rgba(0,200,240,0.15)", borderRadius:10, padding:"9px 12px", cursor:"pointer", display:"flex", alignItems:"center", gap:4 }}>
+            <span style={{ fontSize:13 }}>🔗</span>
+            <span style={{ fontSize:12, fontWeight:700, color:C.accent }}>Share</span>
+          </div>
         </div>
       </div>
 
@@ -571,15 +896,18 @@ export default function MyRunway() {
 
       {/* Content */}
       <div style={{ flex:1 }}>
-        {tab==="flights" && <FlightsScreen onTap={f=>alert(`Tapped ${f.iata} — detail screen coming!`)} onAdd={()=>setShowAdd(true)} leaveState={leaveState} setLeaveState={setLeaveState} navIdx={navIdx} setNavIdx={setNavIdx}/>}
-        {tab==="weather" && <WeatherScreen/>}
-        {tab==="family" && <FamilyScreen/>}
-        {tab==="passport" && <PassportScreen/>}
-        {tab==="plans" && <PlansScreen/>}
+        {tab==="flights"&&<FlightsScreen onTap={f=>alert(`${f.iata}: ${f.dep} → ${f.arr}\nStatus: ${f.status}\nGate: ${f.gate} · Terminal: ${f.terminal}\nConf: ${f.conf}`)} onAdd={()=>setShowAdd(true)} leaveState={leaveState} setLeaveState={setLeaveState} navIdx={navIdx} setNavIdx={setNavIdx}/>}
+        {tab==="weather"&&<WeatherScreen/>}
+        {tab==="family"&&<FamilyScreen/>}
+        {tab==="passport"&&<PassportScreen/>}
+        {tab==="plans"&&<PlansScreen/>}
       </div>
 
       <BottomNav active={tab} onNav={t=>setTab(t)}/>
+
       {showAdd&&<AddModal onClose={()=>setShowAdd(false)}/>}
+      {showShare&&<ShareModal onClose={()=>setShowShare(false)}/>}
+      {showCorp&&<CorporateDashboard onClose={()=>setShowCorp(false)}/>}
     </div>
   );
 }
