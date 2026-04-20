@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 
-const C = {
+const DARK = {
   bg:"#04070e", surface:"#090f1c", card:"#0d1525", border:"#13203a",
   accent:"#00c8f0", orange:"#ff5c2b", green:"#00e87a", yellow:"#ffc800",
   red:"#ff3a54", purple:"#a78bfa",
@@ -9,6 +9,19 @@ const C = {
   sans:"system-ui,-apple-system,sans-serif",
   display:"Impact,'Arial Narrow',Arial,sans-serif",
 };
+
+const LIGHT = {
+  bg:"#f0f4f8", surface:"#ffffff", card:"#ffffff", border:"#d1dce8",
+  accent:"#0099cc", orange:"#e84b1a", green:"#00a855", yellow:"#d4a000",
+  red:"#d42b42", purple:"#7c5cbf",
+  text:"#0a1628", muted:"#7a90a8", soft:"#3a5070",
+  mono:"'Courier New',monospace",
+  sans:"system-ui,-apple-system,sans-serif",
+  display:"Impact,'Arial Narrow',Arial,sans-serif",
+};
+
+// C is set dynamically based on theme — default dark
+let C = DARK;
 
 // conn is now on the DESTINATION flight (the one you're connecting TO)
 // so the bridge appears BETWEEN flight 1 and flight 2
@@ -748,12 +761,12 @@ function CorporateDashboard({ onClose }) {
             </div>
           </div>
         )}
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:8, marginBottom:14 }}>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:10, marginBottom:16 }}>
           {[["✈️","In Air",inAir,C.accent],["✅","On Time",onTime,C.green],["⏰","Delayed",delayed,C.yellow],["❌","Cancelled",cancelled,C.red]].map(([icon,label,val,color])=>(
-            <div key={label} style={{ background:C.card, borderRadius:12, border:`1px solid ${C.border}`, padding:"10px 6px", textAlign:"center" }}>
-              <div style={{ fontSize:16, marginBottom:3 }}>{icon}</div>
-              <div style={{ fontSize:20, fontWeight:800, color, fontFamily:C.mono, lineHeight:1, marginBottom:2 }}>{val}</div>
-              <div style={{ fontSize:9, color:C.muted, fontFamily:C.mono }}>{label}</div>
+            <div key={label} style={{ background:`${color}12`, borderRadius:14, border:`1px solid ${color}30`, padding:"14px 6px", textAlign:"center" }}>
+              <div style={{ fontSize:22, marginBottom:5 }}>{icon}</div>
+              <div style={{ fontSize:26, fontWeight:800, color, fontFamily:C.mono, lineHeight:1, marginBottom:4 }}>{val}</div>
+              <div style={{ fontSize:10, color:C.soft, fontFamily:C.mono, fontWeight:600 }}>{label}</div>
             </div>
           ))}
         </div>
@@ -768,28 +781,28 @@ function CorporateDashboard({ onClose }) {
           const s=sc(emp.status);
           const hasIssue=emp.delay>0||emp.status==="Cancelled";
           return (
-            <div key={emp.id} onClick={()=>setSelEmp(emp)} style={{ background:C.card, borderRadius:16, border:`1px solid ${hasIssue?(emp.status==="Cancelled"?"rgba(255,58,84,0.3)":"rgba(255,200,0,0.25)"):C.border}`, padding:"12px 14px", marginBottom:8, cursor:"pointer" }}>
-              <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-                <div style={{ width:38, height:38, borderRadius:19, background:`${emp.color}22`, border:`2px solid ${emp.color}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, fontWeight:800, color:emp.color, fontFamily:C.mono, flexShrink:0 }}>{emp.avatar}</div>
+            <div key={emp.id} onClick={()=>setSelEmp(emp)} style={{ background:C.card, borderRadius:16, border:`1px solid ${hasIssue?(emp.status==="Cancelled"?"rgba(255,58,84,0.25)":"rgba(255,200,0,0.2)"):C.border}`, padding:"14px 16px", marginBottom:10, cursor:"pointer", transition:"all 0.15s" }}>
+              <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+                <div style={{ width:44, height:44, borderRadius:22, background:`${emp.color}18`, border:`2px solid ${emp.color}60`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:800, color:emp.color, fontFamily:C.mono, flexShrink:0 }}>{emp.avatar}</div>
                 <div style={{ flex:1, minWidth:0 }}>
-                  <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:2 }}>
-                    <span style={{ fontSize:14, fontWeight:800, color:C.text }}>{emp.name}</span>
-                    <span style={{ fontSize:9, color:C.muted, background:C.surface, borderRadius:4, padding:"1px 5px", fontFamily:C.mono }}>{emp.dept}</span>
+                  <div style={{ display:"flex", alignItems:"center", gap:7, marginBottom:4 }}>
+                    <span style={{ fontSize:15, fontWeight:800, color:C.text }}>{emp.name}</span>
+                    <span style={{ fontSize:10, color:C.muted, background:C.surface, borderRadius:5, padding:"2px 7px", fontFamily:C.mono, border:`1px solid ${C.border}` }}>{emp.dept}</span>
                   </div>
-                  <div style={{ fontSize:11, color:C.soft, fontFamily:C.mono }}>{emp.flight} · {emp.dep} → {emp.arr}</div>
+                  <div style={{ fontSize:12, color:C.soft, fontFamily:C.mono }}>{emp.flight} · {emp.dep} → {emp.arr}</div>
+                  {emp.progress>0&&emp.progress<100&&(
+                    <div style={{ height:3, background:C.surface, borderRadius:2, overflow:"hidden", marginTop:8, maxWidth:180 }}>
+                      <div style={{ height:3, width:`${emp.progress}%`, background:`linear-gradient(90deg,${emp.color},${C.accent})`, borderRadius:2 }}/>
+                    </div>
+                  )}
                 </div>
                 <div style={{ textAlign:"right", flexShrink:0 }}>
-                  <div style={{ background:s.bg, border:`1px solid ${s.br}`, borderRadius:20, padding:"2px 8px", fontSize:9, color:s.c, fontWeight:700, fontFamily:C.mono, marginBottom:3 }}>{emp.status}</div>
-                  {emp.delay>0&&<div style={{ fontSize:10, color:C.yellow, fontFamily:C.mono }}>+{emp.delay}m</div>}
-                  {emp.status==="Cancelled"&&<div style={{ fontSize:10, color:C.red }}>Needs rebooking</div>}
-                  {!emp.delay&&emp.status!=="Cancelled"&&<div style={{ fontSize:10, color:C.muted }}>{emp.eta}</div>}
+                  <div style={{ background:s.bg, border:`1px solid ${s.br}`, borderRadius:20, padding:"4px 10px", fontSize:10, color:s.c, fontWeight:700, fontFamily:C.mono, marginBottom:4 }}>{emp.status}</div>
+                  {emp.delay>0&&<div style={{ fontSize:11, color:C.yellow, fontFamily:C.mono, fontWeight:700 }}>+{emp.delay}m</div>}
+                  {emp.status==="Cancelled"&&<div style={{ fontSize:10, color:C.red, fontWeight:600 }}>Needs rebooking</div>}
+                  {!emp.delay&&emp.status!=="Cancelled"&&<div style={{ fontSize:11, color:C.muted }}>{emp.eta}</div>}
                 </div>
               </div>
-              {emp.progress>0&&emp.progress<100&&(
-                <div style={{ height:2.5, background:C.surface, borderRadius:2, overflow:"hidden", marginTop:8 }}>
-                  <div style={{ height:2.5, width:`${emp.progress}%`, background:`linear-gradient(90deg,${C.accent},${C.orange})`, borderRadius:2 }}/>
-                </div>
-              )}
             </div>
           );
         })}
@@ -839,18 +852,27 @@ export default function MyRunway() {
   const [leaveState, setLeaveState] = useState("later");
   const [navIdx, setNavIdx] = useState(0);
   const [tick, setTick] = useState(0);
+  const [isDark, setIsDark] = useState(true);
+
+  // Update global C when theme changes
+  C = isDark ? DARK : LIGHT;
 
   useEffect(()=>{ const i=setInterval(()=>setTick(n=>n+1),2000); return()=>clearInterval(i); },[]);
 
   return (
     <div style={{ background:C.bg, minHeight:"100vh", display:"flex", flexDirection:"column", fontFamily:C.sans, maxWidth:480, margin:"0 auto", position:"relative" }}>
       <style>{`::-webkit-scrollbar{display:none} *{box-sizing:border-box}`}</style>
-      <div style={{ background:"rgba(4,7,14,0.98)", borderBottom:`1px solid ${C.border}`, padding:"14px 16px", display:"flex", alignItems:"center", justifyContent:"space-between", position:"sticky", top:0, zIndex:10 }}>
+      <div style={{ background:isDark?"rgba(4,7,14,0.98)":"rgba(240,244,248,0.98)", borderBottom:`1px solid ${C.border}`, padding:"14px 16px", display:"flex", alignItems:"center", justifyContent:"space-between", position:"sticky", top:0, zIndex:10 }}>
         <div style={{ display:"flex", alignItems:"center", gap:9 }}>
           <div style={{ width:10, height:10, borderRadius:5, background:C.orange, boxShadow:tick%2===0?`0 0 14px ${C.orange}`:"none", transition:"box-shadow 1.5s" }}/>
           <span style={{ fontFamily:C.display, fontSize:24, color:C.accent, letterSpacing:5 }}>MY RUNWAY</span>
         </div>
         <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+          {/* Theme toggle */}
+          <div onClick={()=>setIsDark(d=>!d)} style={{ background:isDark?"rgba(255,255,255,0.08)":"rgba(0,0,0,0.06)", border:`1px solid ${C.border}`, borderRadius:10, padding:"9px 12px", cursor:"pointer", display:"flex", alignItems:"center", gap:5 }}>
+            <span style={{ fontSize:14 }}>{isDark?"☀️":"🌙"}</span>
+            <span style={{ fontSize:11, fontWeight:700, color:C.soft }}>{isDark?"Light":"Dark"}</span>
+          </div>
           <div onClick={()=>setShowAdd(true)} style={{ background:`linear-gradient(135deg,${C.accent},#007aaa)`, borderRadius:10, padding:"9px 14px", cursor:"pointer" }}>
             <span style={{ fontSize:13, color:"#000", fontWeight:800 }}>+ Add Flight</span>
           </div>
