@@ -10,58 +10,65 @@ const C = {
   display:"Impact,'Arial Narrow',Arial,sans-serif",
 };
 
+// conn is now on the DESTINATION flight (the one you're connecting TO)
+// so the bridge appears BETWEEN flight 1 and flight 2
 const FLIGHTS = [
   {
     id:"f1", iata:"AA 1307", code:"AA", airline:"American Airlines",
     dep:"MIA", arr:"LIM", depTime:"3:51 PM", arrTime:"8:30 PM",
-    depFull:"Miami Intl (MIA)", arrFull:"Jorge Chávez Intl · Lima",
     status:"Scheduled", progress:0, gate:"TBD", terminal:"D",
-    aircraft:"Boeing 737", date:"Wed Apr 22, 2026", conf:"WKZGIC",
-    leg:1, trip:"outbound",
+    aircraft:"Boeing 737", date:"Wed Apr 22, 2026", conf:"WKZGIC", trip:"outbound",
     wx:{
       dep:{ icon:"🌤️", temp:82, cond:"Partly Cloudy", wind:12, note:"Good departure conditions" },
       arr:{ icon:"🌥️", temp:68, cond:"Overcast", wind:9, note:"Typical Lima overcast" },
     },
+    conn: null,
+  },
+  {
+    id:"f2", iata:"LA 2166", code:"LA", airline:"LATAM Airlines",
+    dep:"LIM", arr:"CUZ", depTime:"11:40 PM", arrTime:"1:00 AM",
+    status:"Scheduled", progress:0, gate:"TBD", terminal:"TBD",
+    aircraft:"Airbus A319", date:"Apr 22–23, 2026", conf:"NATBMU", trip:"outbound",
+    wx:{
+      dep:{ icon:"🌥️", temp:66, cond:"Overcast", wind:8, note:"Normal Lima night" },
+      arr:{ icon:"🌙", temp:44, cond:"Clear night", wind:5, note:"Cusco at 11,200ft — cold!" },
+    },
+    // Connection info lives on f2 — it's the bridge ARRIVING from f1 and DEPARTING on f2
     conn:{
-      from:"MIA Terminal D", to:"LIM — LA 2166",
       arrTerminal:"International Terminal", arrGate:"TBD",
       depTerminal:"Domestic Terminal", depGate:"TBD",
       walkMins:35, layoverMins:190, buffer:155,
       transport:"Walk within terminal",
       security:"Immigration & passport control required",
       steps:[
-        { icon:"🛬", label:"Deplane at MIA Terminal D", mins:5 },
+        { icon:"🛬", label:"Deplane at LIM International Terminal", mins:5 },
         { icon:"🛂", label:"Immigration & passport control", mins:25 },
         { icon:"🚶", label:"Walk to domestic gates", mins:5 },
       ],
     },
   },
   {
-    id:"f2", iata:"LA 2166", code:"LA", airline:"LATAM Airlines",
-    dep:"LIM", arr:"CUZ", depTime:"11:40 PM", arrTime:"1:00 AM",
-    depFull:"Jorge Chávez Intl · Lima", arrFull:"Alejandro Velasco Astete · Cusco",
-    status:"Scheduled", progress:0, gate:"TBD", terminal:"TBD",
-    aircraft:"Airbus A319", date:"Apr 22–23, 2026", conf:"NATBMU",
-    leg:2, trip:"outbound",
-    wx:{
-      dep:{ icon:"🌥️", temp:66, cond:"Overcast", wind:8, note:"Normal Lima night" },
-      arr:{ icon:"🌙", temp:44, cond:"Clear night", wind:5, note:"Cusco at 11,200ft — cold!" },
-    },
-    conn:null,
-  },
-  {
     id:"f3", iata:"H2 5012", code:"H2", airline:"Sky Airline",
     dep:"CUZ", arr:"LIM", depTime:"6:15 PM", arrTime:"8:00 PM",
-    depFull:"Alejandro Velasco Astete · Cusco", arrFull:"Jorge Chávez Intl · Lima",
     status:"Scheduled", progress:0, gate:"TBD", terminal:"TBD",
-    aircraft:"Airbus A320", date:"Mon Apr 27, 2026", conf:"JNNAYS",
-    leg:3, trip:"return",
+    aircraft:"Airbus A320", date:"Mon Apr 27, 2026", conf:"JNNAYS", trip:"return",
     wx:{
       dep:{ icon:"⛅", temp:55, cond:"Partly Cloudy", wind:10, note:"Watch for mountain weather" },
       arr:{ icon:"🌥️", temp:67, cond:"Overcast", wind:8, note:"Typical Lima evening" },
     },
+    conn: null,
+  },
+  {
+    id:"f4", iata:"AA 988", code:"AA", airline:"American Airlines",
+    dep:"LIM", arr:"MIA", depTime:"11:45 PM", arrTime:"6:40 AM",
+    status:"Scheduled", progress:0, gate:"TBD", terminal:"TBD",
+    aircraft:"Boeing 737", date:"Apr 27–28, 2026", conf:"GPHCIF", trip:"return",
+    wx:{
+      dep:{ icon:"🌙", temp:64, cond:"Clear night", wind:7, note:"Clear departure" },
+      arr:{ icon:"🌤️", temp:79, cond:"Sunny", wind:14, note:"Morning arrival Miami" },
+    },
+    // Connection bridge between H2 5012 and AA 988
     conn:{
-      from:"LIM Domestic Terminal", to:"LIM — AA 988",
       arrTerminal:"Domestic Terminal", arrGate:"TBD",
       depTerminal:"International Terminal", depGate:"TBD",
       walkMins:40, layoverMins:225, buffer:185,
@@ -73,19 +80,6 @@ const FLIGHTS = [
         { icon:"🛂", label:"Check-in AA / bag drop", mins:15 },
       ],
     },
-  },
-  {
-    id:"f4", iata:"AA 988", code:"AA", airline:"American Airlines",
-    dep:"LIM", arr:"MIA", depTime:"11:45 PM", arrTime:"6:40 AM",
-    depFull:"Jorge Chávez Intl · Lima", arrFull:"Miami Intl (MIA)",
-    status:"Scheduled", progress:0, gate:"TBD", terminal:"TBD",
-    aircraft:"Boeing 737", date:"Apr 27–28, 2026", conf:"GPHCIF",
-    leg:4, trip:"return",
-    wx:{
-      dep:{ icon:"🌙", temp:64, cond:"Clear night", wind:7, note:"Clear departure" },
-      arr:{ icon:"🌤️", temp:79, cond:"Sunny", wind:14, note:"Morning arrival Miami" },
-    },
-    conn:null,
   },
 ];
 
@@ -138,17 +132,25 @@ function StatusPill({ status }) {
   return <span style={{ background:s.bg, border:`1px solid ${s.br}`, borderRadius:20, padding:"4px 12px", fontSize:11, color:s.c, fontWeight:700, fontFamily:C.mono, whiteSpace:"nowrap" }}>{status}</span>;
 }
 
+// Pure SVG arc with clearly visible plane
 function Arc({ progress=0, color="#00c8f0" }) {
-  const w=200, h=44, cx=w/2;
-  const px = 14+(progress/100)*(w-28);
-  const py = h-10-Math.sin((progress/100)*Math.PI)*18;
+  const w=200, h=54, cx=w/2;
+  const pct = progress/100;
+  // When progress=0, show plane at start; otherwise animate along path
+  const px = progress===0 ? cx : 16 + pct*(w-32);
+  const py = progress===0 ? h-28 : h-10 - Math.sin(pct*Math.PI)*24;
   return (
-    <svg width={w} height={h} style={{ overflow:"visible", display:"block", margin:"0 auto" }}>
-      <path d={`M 14 ${h-8} Q ${cx} ${h-38} ${w-14} ${h-8}`} fill="none" stroke="#13203a" strokeWidth="2" strokeDasharray="5 4"/>
-      {progress>0&&<path d={`M 14 ${h-8} Q ${cx} ${h-38} ${px} ${py}`} fill="none" stroke={color} strokeWidth="2" opacity="0.7"/>}
-      <circle cx="14" cy={h-8} r="5" fill="#090f1c" stroke={color} strokeWidth="2"/>
-      <circle cx={w-14} cy={h-8} r="5" fill="#090f1c" stroke={color} strokeWidth="2"/>
-      <text x={px} y={py} fontSize="18" textAnchor="middle" dominantBaseline="middle">✈</text>
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} style={{ overflow:"visible", display:"block", margin:"0 auto" }}>
+      {/* Dashed track - lighter so plane stands out */}
+      <path d={`M 16 ${h-8} Q ${cx} ${h-50} ${w-16} ${h-8}`} fill="none" stroke="#2a4060" strokeWidth="1.5" strokeDasharray="4 5"/>
+      {/* Start dot */}
+      <circle cx="16" cy={h-8} r="4" fill="#0d1525" stroke={color} strokeWidth="2"/>
+      {/* End dot */}
+      <circle cx={w-16} cy={h-8} r="4" fill="#0d1525" stroke={color} strokeWidth="2"/>
+      {/* Plane - bright white with colored ring, always at center when not flying */}
+      <circle cx={px} cy={py} r="14" fill={color} opacity="0.2"/>
+      <circle cx={px} cy={py} r="14" fill="none" stroke={color} strokeWidth="2"/>
+      <text x={px} y={py+1} fontSize="15" textAnchor="middle" dominantBaseline="middle" fill="#ffffff" fontWeight="bold">✈</text>
     </svg>
   );
 }
@@ -161,7 +163,7 @@ function ConnBridge({ conn }) {
     ? { c:"#ffc800", bg:"rgba(255,200,0,0.07)", br:"rgba(255,200,0,0.25)", label:"⏰ Tight connection" }
     : { c:"#ff3a54", bg:"rgba(255,58,84,0.07)", br:"rgba(255,58,84,0.25)", label:"🚨 Very tight — rush!" };
   return (
-    <div style={{ background:urgency.bg, borderRadius:16, border:`1px solid ${urgency.br}`, overflow:"hidden", marginBottom:12 }}>
+    <div style={{ background:urgency.bg, borderRadius:16, border:`1px solid ${urgency.br}`, overflow:"hidden", marginBottom:12, marginTop:2 }}>
       <div onClick={()=>setOpen(o=>!o)} style={{ padding:"13px 16px", display:"flex", alignItems:"center", gap:10, cursor:"pointer" }}>
         <div style={{ flex:1 }}>
           <div style={{ fontSize:14, fontWeight:700, color:urgency.c, marginBottom:3 }}>{urgency.label}</div>
@@ -184,13 +186,13 @@ function ConnBridge({ conn }) {
               <div style={{ flex:1 }}>
                 <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:1, marginBottom:5 }}>🛬 ARRIVING AT</div>
                 <div style={{ fontSize:14, fontWeight:700, color:C.text, marginBottom:2 }}>{conn.arrTerminal}</div>
-                <div style={{ fontSize:12, color:C.soft }}>Gate: <span style={{ color:C.text, fontFamily:C.mono, fontWeight:700 }}>{conn.arrGate}</span></div>
+                <div style={{ fontSize:12, color:C.soft }}>Gate: <b style={{ color:C.text, fontFamily:C.mono }}>{conn.arrGate}</b></div>
               </div>
               <div style={{ width:1, background:C.border }}/>
               <div style={{ flex:1 }}>
                 <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:1, marginBottom:5 }}>🛫 DEPARTING FROM</div>
                 <div style={{ fontSize:14, fontWeight:700, color:C.text, marginBottom:2 }}>{conn.depTerminal}</div>
-                <div style={{ fontSize:12, color:C.soft }}>Gate: <span style={{ color:C.text, fontFamily:C.mono, fontWeight:700 }}>{conn.depGate}</span></div>
+                <div style={{ fontSize:12, color:C.soft }}>Gate: <b style={{ color:C.text, fontFamily:C.mono }}>{conn.depGate}</b></div>
               </div>
             </div>
             <div style={{ background:"rgba(255,200,0,0.08)", borderRadius:9, padding:"9px 12px", border:"1px solid rgba(255,200,0,0.25)" }}>
@@ -211,6 +213,55 @@ function ConnBridge({ conn }) {
   );
 }
 
+function FlightCard({ f, onTap }) {
+  const s = sc(f.status);
+  return (
+    <div onClick={()=>onTap(f)} style={{ background:C.card, borderRadius:20, border:`1px solid ${f.status==="Delayed"?"rgba(255,200,0,0.3)":f.status==="Gate Change"?"rgba(167,139,250,0.3)":C.border}`, padding:16, marginBottom:10, cursor:"pointer" }}>
+      <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:14 }}>
+        <AirlineLogo code={f.code} size={30}/>
+        <div style={{ flex:1 }}>
+          <div style={{ fontSize:16, fontWeight:800, color:C.text, fontFamily:C.mono }}>{f.iata}</div>
+          <div style={{ fontSize:12, color:C.soft }}>{f.airline} · {f.aircraft}</div>
+        </div>
+        <StatusPill status={f.status}/>
+      </div>
+      <div style={{ display:"flex", alignItems:"center", marginBottom:14 }}>
+        <div style={{ textAlign:"center", minWidth:60 }}>
+          <div style={{ fontSize:30, fontWeight:800, color:C.text, fontFamily:C.mono, lineHeight:1 }}>{f.dep}</div>
+          <div style={{ fontSize:13, color:"#a8c8e8", fontWeight:600, marginTop:4 }}>{f.depTime}</div>
+        </div>
+        <div style={{ flex:1, display:"flex", justifyContent:"center" }}>
+          <Arc progress={f.progress} color={s.c}/>
+        </div>
+        <div style={{ textAlign:"center", minWidth:60 }}>
+          <div style={{ fontSize:30, fontWeight:800, color:C.text, fontFamily:C.mono, lineHeight:1 }}>{f.arr}</div>
+          <div style={{ fontSize:13, color:"#a8c8e8", fontWeight:600, marginTop:4 }}>{f.arrTime}</div>
+        </div>
+      </div>
+      <div style={{ display:"flex", gap:6, flexWrap:"wrap", justifyContent:"center", marginBottom:f.wx?12:0 }}>
+        <span style={{ background:C.surface, borderRadius:8, padding:"5px 11px", fontSize:12, color:C.soft, border:`1px solid ${C.border}` }}>Gate <b style={{ color:C.text, fontFamily:C.mono }}>{f.gate}</b></span>
+        <span style={{ background:C.surface, borderRadius:8, padding:"5px 11px", fontSize:12, color:C.soft, border:`1px solid ${C.border}` }}>Terminal <b style={{ color:C.text, fontFamily:C.mono }}>{f.terminal}</b></span>
+        {f.conf&&<span style={{ background:"rgba(167,139,250,0.1)", borderRadius:8, padding:"5px 11px", fontSize:12, color:C.purple, border:"1px solid rgba(167,139,250,0.25)", fontFamily:C.mono }}>CONF# {f.conf}</span>}
+        {f.date&&<span style={{ background:C.surface, borderRadius:8, padding:"5px 11px", fontSize:12, color:C.soft, border:`1px solid ${C.border}` }}>{f.date}</span>}
+      </div>
+      {f.wx&&(
+        <div style={{ display:"flex", gap:8, paddingTop:12, borderTop:`1px solid ${C.border}` }}>
+          {[["dep",f.dep,f.wx.dep],["arr",f.arr,f.wx.arr]].map(([type,code,w])=>(
+            <div key={type} style={{ flex:1, display:"flex", alignItems:"center", gap:8, background:C.surface, borderRadius:11, padding:"10px 12px", border:`1px solid ${C.border}` }}>
+              <span style={{ fontSize:20 }}>{w.icon}</span>
+              <div style={{ flex:1 }}>
+                <div style={{ fontSize:11, color:C.soft, marginBottom:2 }}>{code}</div>
+                <div style={{ fontSize:14, fontWeight:700, color:C.text }}>{w.temp}° <span style={{ fontSize:12, color:C.soft, fontWeight:400 }}>{w.cond}</span></div>
+                <div style={{ fontSize:11, color:C.muted }}>💨 {w.wind}mph</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AddModal({ onClose }) {
   const [num, setNum] = useState("");
   const [date, setDate] = useState("");
@@ -220,7 +271,7 @@ function AddModal({ onClose }) {
     if (!num.trim()) { setErr("Enter a flight number e.g. AA 100"); return; }
     if (!date) { setErr("Pick a date"); return; }
     setBusy(true); setErr("");
-    setTimeout(()=>{ setBusy(false); alert(`Flight ${num.toUpperCase()} added!\nIn the live app this pulls real data from OpenSky.`); onClose(); }, 1400);
+    setTimeout(()=>{ setBusy(false); alert(`Flight ${num.toUpperCase()} added!`); onClose(); }, 1400);
   }
   return (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", zIndex:60, display:"flex", flexDirection:"column", justifyContent:"flex-end" }} onClick={onClose}>
@@ -248,7 +299,7 @@ function AddModal({ onClose }) {
 }
 
 function ShareModal({ onClose }) {
-  const autoMsg = `Landing LIM Terminal D at 8:30 PM on American Airlines AA 1307. Connecting via LIM — first leg lands 8:30 PM.`;
+  const autoMsg = `Landing LIM at 8:30 PM on American Airlines AA 1307. Connecting via LIM — next flight LA 2166 departs 11:40 PM.`;
   const [note, setNote] = useState("");
   const [generated, setGenerated] = useState(false);
   return (
@@ -272,7 +323,7 @@ function ShareModal({ onClose }) {
             <div style={{ fontSize:13, color:C.text, fontFamily:C.mono }}>myrunwayapp.co/t/abc123k</div>
           </div>
         )}
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:12 }}>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
           {[["💬","WhatsApp","#25D366"],["✉️","iMessage","#34C759"],["📧","Email","#4285F4"],["🔗","Copy Link",C.accent]].map(([icon,label,color])=>(
             <div key={label} onClick={()=>{ setGenerated(true); alert(`Sharing via ${label}...`); }} style={{ background:`${color}15`, border:`1px solid ${color}40`, borderRadius:12, padding:"12px 0", textAlign:"center", cursor:"pointer" }}>
               <div style={{ fontSize:20, marginBottom:4 }}>{icon}</div>
@@ -290,34 +341,65 @@ function FlightsScreen({ onTap, onAdd, leaveState, setLeaveState, navIdx, setNav
   const app = NAV_APPS[navIdx];
   const outbound = FLIGHTS.filter(f=>f.trip==="outbound");
   const returnFlights = FLIGHTS.filter(f=>f.trip==="return");
+  const [showOutboundAll, setShowOutboundAll] = useState(false);
+  const [showReturnAll, setShowReturnAll] = useState(false);
+  const [showReturn, setShowReturn] = useState(false);
+
+  function renderFlightGroup(flights, showAll, setShowAll) {
+    // Always show all flights so connection bridge is always visible between them
+    // But collapse non-first flights when showAll is false
+    return flights.map((f, i) => (
+      <div key={f.id}>
+        {/* Connection bridge BEFORE this flight if it has conn = connecting leg */}
+        {f.conn && <ConnBridge conn={f.conn}/>}
+        {/* Show first flight always, show rest only when expanded */}
+        {(i === 0 || showAll) && <FlightCard f={f} onTap={onTap}/>}
+        {/* If collapsed and there are more flights, show a teaser */}
+        {i === 0 && !showAll && flights.length > 1 && (
+          <div onClick={()=>setShowAll(true)} style={{ background:C.surface, borderRadius:12, border:`1px dashed ${C.border}`, padding:"10px 16px", marginBottom:10, display:"flex", alignItems:"center", justifyContent:"space-between", cursor:"pointer" }}>
+            <span style={{ fontSize:12, color:C.soft, fontFamily:C.mono }}>+ {flights.length - 1} more connecting flight</span>
+            <span style={{ fontSize:11, color:C.accent, fontFamily:C.mono }}>show ▼</span>
+          </div>
+        )}
+      </div>
+    ));
+  }
 
   return (
     <div style={{ padding:"14px 14px 100px" }}>
 
-      {/* Route pills — outbound and return */}
+      {/* Route summary — WHITE text */}
       <div style={{ background:C.card, borderRadius:16, border:`1px solid ${C.border}`, padding:"14px", marginBottom:16 }}>
-        <div style={{ marginBottom:10 }}>
-          <div style={{ fontSize:10, color:C.orange, fontFamily:C.mono, fontWeight:700, letterSpacing:1.5, marginBottom:8 }}>OUTBOUND</div>
+        <div style={{ marginBottom:12 }}>
+          <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, fontWeight:700, letterSpacing:1.5, marginBottom:8 }}>OUTBOUND · APR 22</div>
           <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-            {outbound.map(f=>(
-              <div key={f.id} onClick={()=>onTap(f)} style={{ background:"rgba(0,232,122,0.1)", border:"1px solid rgba(0,232,122,0.3)", borderRadius:20, padding:"5px 12px", cursor:"pointer" }}>
-                <span style={{ fontSize:11, color:C.green, fontFamily:C.mono, fontWeight:700 }}>{f.iata} · {f.dep}–{f.arr}</span>
-              </div>
-            ))}
+            {outbound.map(f=>{
+              const s=sc(f.status);
+              return (
+                <div key={f.id} onClick={()=>onTap(f)} style={{ background:"rgba(255,255,255,0.07)", border:`1px solid rgba(255,255,255,0.15)`, borderRadius:20, padding:"6px 14px", cursor:"pointer", display:"flex", alignItems:"center", gap:6 }}>
+                  <span style={{ fontSize:12, color:"#ffffff", fontFamily:C.mono, fontWeight:700 }}>{f.iata} · {f.dep}–{f.arr}</span>
+                  <div style={{ width:7, height:7, borderRadius:4, background:s.c, flexShrink:0 }}/>
+                </div>
+              );
+            })}
           </div>
         </div>
-        <div style={{ borderTop:`1px solid ${C.border}`, paddingTop:10 }}>
-          <div style={{ fontSize:10, color:C.accent, fontFamily:C.mono, fontWeight:700, letterSpacing:1.5, marginBottom:8 }}>RETURN</div>
+        <div style={{ borderTop:`1px solid ${C.border}`, paddingTop:12 }}>
+          <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, fontWeight:700, letterSpacing:1.5, marginBottom:8 }}>RETURN · APR 27</div>
           <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-            {returnFlights.map(f=>(
-              <div key={f.id} onClick={()=>onTap(f)} style={{ background:"rgba(0,200,240,0.1)", border:"1px solid rgba(0,200,240,0.3)", borderRadius:20, padding:"5px 12px", cursor:"pointer" }}>
-                <span style={{ fontSize:11, color:C.accent, fontFamily:C.mono, fontWeight:700 }}>{f.iata} · {f.dep}–{f.arr}</span>
-              </div>
-            ))}
+            {returnFlights.map(f=>{
+              const s=sc(f.status);
+              return (
+                <div key={f.id} onClick={()=>onTap(f)} style={{ background:"rgba(255,255,255,0.07)", border:`1px solid rgba(255,255,255,0.15)`, borderRadius:20, padding:"6px 14px", cursor:"pointer", display:"flex", alignItems:"center", gap:6 }}>
+                  <span style={{ fontSize:12, color:"#ffffff", fontFamily:C.mono, fontWeight:700 }}>{f.iata} · {f.dep}–{f.arr}</span>
+                  <div style={{ width:7, height:7, borderRadius:4, background:s.c, flexShrink:0 }}/>
+                </div>
+              );
+            })}
           </div>
         </div>
-        {/* Color legend */}
-        <div style={{ display:"flex", gap:12, marginTop:10, paddingTop:10, borderTop:`1px solid ${C.border}`, flexWrap:"wrap" }}>
+        {/* Legend */}
+        <div style={{ display:"flex", gap:12, marginTop:12, paddingTop:12, borderTop:`1px solid ${C.border}`, flexWrap:"wrap" }}>
           {[["#00e87a","On Time"],["#ffc800","Delayed"],["#a78bfa","Gate Change"],["#ff3a54","Cancelled"]].map(([c,l])=>(
             <div key={l} style={{ display:"flex", alignItems:"center", gap:5 }}>
               <div style={{ width:8, height:8, borderRadius:4, background:c }}/>
@@ -327,117 +409,32 @@ function FlightsScreen({ onTap, onAdd, leaveState, setLeaveState, navIdx, setNav
         </div>
       </div>
 
-      {/* OUTBOUND flights */}
-      <div style={{ fontSize:11, color:C.orange, fontFamily:C.mono, fontWeight:700, letterSpacing:2, marginBottom:12 }}>OUTBOUND · APR 22 · 2 FLIGHTS</div>
-      {outbound.map((f,i)=>{
-        const s=sc(f.status);
-        return (
-          <div key={f.id}>
-            <div onClick={()=>onTap(f)} style={{ background:C.card, borderRadius:20, border:`1px solid ${f.status==="Delayed"?"rgba(255,200,0,0.3)":f.status==="Gate Change"?"rgba(167,139,250,0.3)":C.border}`, padding:16, marginBottom:10, cursor:"pointer" }}>
-              <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:14 }}>
-                <AirlineLogo code={f.code} size={30}/>
-                <div style={{ flex:1 }}>
-                  <div style={{ fontSize:16, fontWeight:800, color:C.text, fontFamily:C.mono }}>{f.iata}</div>
-                  <div style={{ fontSize:12, color:C.soft }}>{f.airline} · {f.aircraft}</div>
-                </div>
-                <StatusPill status={f.status}/>
-              </div>
-              <div style={{ display:"flex", alignItems:"center", marginBottom:14 }}>
-                <div style={{ textAlign:"center", minWidth:60 }}>
-                  <div style={{ fontSize:30, fontWeight:800, color:C.text, fontFamily:C.mono, lineHeight:1 }}>{f.dep}</div>
-                  <div style={{ fontSize:12, color:C.soft, marginTop:4 }}>{f.depTime}</div>
-                </div>
-                <div style={{ flex:1, display:"flex", justifyContent:"center" }}>
-                  <Arc progress={f.progress} color={s.c}/>
-                </div>
-                <div style={{ textAlign:"center", minWidth:60 }}>
-                  <div style={{ fontSize:30, fontWeight:800, color:C.text, fontFamily:C.mono, lineHeight:1 }}>{f.arr}</div>
-                  <div style={{ fontSize:12, color:C.soft, marginTop:4 }}>{f.arrTime}</div>
-                </div>
-              </div>
-              <div style={{ display:"flex", gap:6, flexWrap:"wrap", justifyContent:"center", marginBottom:f.wx?12:0 }}>
-                <span style={{ background:C.surface, borderRadius:8, padding:"5px 11px", fontSize:12, color:C.soft, border:`1px solid ${C.border}` }}>Gate <b style={{ color:C.text, fontFamily:C.mono }}>{f.gate}</b></span>
-                <span style={{ background:C.surface, borderRadius:8, padding:"5px 11px", fontSize:12, color:C.soft, border:`1px solid ${C.border}` }}>Terminal <b style={{ color:C.text, fontFamily:C.mono }}>{f.terminal}</b></span>
-                {f.conf&&<span style={{ background:"rgba(167,139,250,0.1)", borderRadius:8, padding:"5px 11px", fontSize:12, color:C.purple, border:"1px solid rgba(167,139,250,0.25)", fontFamily:C.mono }}>CONF# {f.conf}</span>}
-                {f.date&&<span style={{ background:C.surface, borderRadius:8, padding:"5px 11px", fontSize:12, color:C.soft, border:`1px solid ${C.border}` }}>{f.date}</span>}
-              </div>
-              {f.wx&&(
-                <div style={{ display:"flex", gap:8, paddingTop:12, borderTop:`1px solid ${C.border}` }}>
-                  {[["dep",f.dep,f.wx.dep],["arr",f.arr,f.wx.arr]].map(([type,code,w])=>(
-                    <div key={type} style={{ flex:1, display:"flex", alignItems:"center", gap:8, background:C.surface, borderRadius:11, padding:"10px 12px", border:`1px solid ${C.border}` }}>
-                      <span style={{ fontSize:20 }}>{w.icon}</span>
-                      <div style={{ flex:1 }}>
-                        <div style={{ fontSize:11, color:C.soft, marginBottom:2 }}>{code}</div>
-                        <div style={{ fontSize:14, fontWeight:700, color:C.text }}>{w.temp}° <span style={{ fontSize:12, color:C.soft, fontWeight:400 }}>{w.cond}</span></div>
-                        <div style={{ fontSize:11, color:C.muted }}>💨 {w.wind}mph</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            {i<outbound.length-1&&outbound[i+1]&&FLIGHTS[i+1].conn&&<ConnBridge conn={FLIGHTS[i+1].conn}/>}
+      {/* OUTBOUND */}
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
+        <div style={{ fontSize:11, color:C.orange, fontFamily:C.mono, fontWeight:700, letterSpacing:2 }}>OUTBOUND · APR 22</div>
+        {outbound.length > 1 && (
+          <div onClick={()=>setShowOutboundAll(o=>!o)} style={{ fontSize:11, color:C.accent, cursor:"pointer", fontFamily:C.mono }}>
+            {showOutboundAll ? "Hide ▲" : `All ${outbound.length} flights ▼`}
           </div>
-        );
-      })}
+        )}
+      </div>
+      {renderFlightGroup(outbound, showOutboundAll, setShowOutboundAll)}
 
-      {/* RETURN flights */}
-      <div style={{ fontSize:11, color:C.accent, fontFamily:C.mono, fontWeight:700, letterSpacing:2, marginTop:20, marginBottom:12 }}>RETURN · APR 27 · 2 FLIGHTS</div>
-      {returnFlights.map((f,i)=>{
-        const s=sc(f.status);
-        const globalIdx = FLIGHTS.findIndex(x=>x.id===f.id);
-        return (
-          <div key={f.id}>
-            <div onClick={()=>onTap(f)} style={{ background:C.card, borderRadius:20, border:`1px solid ${f.status==="Delayed"?"rgba(255,200,0,0.3)":C.border}`, padding:16, marginBottom:10, cursor:"pointer" }}>
-              <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:14 }}>
-                <AirlineLogo code={f.code} size={30}/>
-                <div style={{ flex:1 }}>
-                  <div style={{ fontSize:16, fontWeight:800, color:C.text, fontFamily:C.mono }}>{f.iata}</div>
-                  <div style={{ fontSize:12, color:C.soft }}>{f.airline} · {f.aircraft}</div>
-                </div>
-                <StatusPill status={f.status}/>
-              </div>
-              <div style={{ display:"flex", alignItems:"center", marginBottom:14 }}>
-                <div style={{ textAlign:"center", minWidth:60 }}>
-                  <div style={{ fontSize:30, fontWeight:800, color:C.text, fontFamily:C.mono, lineHeight:1 }}>{f.dep}</div>
-                  <div style={{ fontSize:12, color:C.soft, marginTop:4 }}>{f.depTime}</div>
-                </div>
-                <div style={{ flex:1, display:"flex", justifyContent:"center" }}>
-                  <Arc progress={f.progress} color={s.c}/>
-                </div>
-                <div style={{ textAlign:"center", minWidth:60 }}>
-                  <div style={{ fontSize:30, fontWeight:800, color:C.text, fontFamily:C.mono, lineHeight:1 }}>{f.arr}</div>
-                  <div style={{ fontSize:12, color:C.soft, marginTop:4 }}>{f.arrTime}</div>
-                </div>
-              </div>
-              <div style={{ display:"flex", gap:6, flexWrap:"wrap", justifyContent:"center", marginBottom:f.wx?12:0 }}>
-                <span style={{ background:C.surface, borderRadius:8, padding:"5px 11px", fontSize:12, color:C.soft, border:`1px solid ${C.border}` }}>Gate <b style={{ color:C.text, fontFamily:C.mono }}>{f.gate}</b></span>
-                <span style={{ background:C.surface, borderRadius:8, padding:"5px 11px", fontSize:12, color:C.soft, border:`1px solid ${C.border}` }}>Terminal <b style={{ color:C.text, fontFamily:C.mono }}>{f.terminal}</b></span>
-                {f.conf&&<span style={{ background:"rgba(167,139,250,0.1)", borderRadius:8, padding:"5px 11px", fontSize:12, color:C.purple, border:"1px solid rgba(167,139,250,0.25)", fontFamily:C.mono }}>CONF# {f.conf}</span>}
-                {f.date&&<span style={{ background:C.surface, borderRadius:8, padding:"5px 11px", fontSize:12, color:C.soft, border:`1px solid ${C.border}` }}>{f.date}</span>}
-              </div>
-              {f.wx&&(
-                <div style={{ display:"flex", gap:8, paddingTop:12, borderTop:`1px solid ${C.border}` }}>
-                  {[["dep",f.dep,f.wx.dep],["arr",f.arr,f.wx.arr]].map(([type,code,w])=>(
-                    <div key={type} style={{ flex:1, display:"flex", alignItems:"center", gap:8, background:C.surface, borderRadius:11, padding:"10px 12px", border:`1px solid ${C.border}` }}>
-                      <span style={{ fontSize:20 }}>{w.icon}</span>
-                      <div style={{ flex:1 }}>
-                        <div style={{ fontSize:11, color:C.soft, marginBottom:2 }}>{code}</div>
-                        <div style={{ fontSize:14, fontWeight:700, color:C.text }}>{w.temp}° <span style={{ fontSize:12, color:C.soft, fontWeight:400 }}>{w.cond}</span></div>
-                        <div style={{ fontSize:11, color:C.muted }}>💨 {w.wind}mph</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            {f.conn&&<ConnBridge conn={f.conn}/>}
-          </div>
-        );
-      })}
+      {/* RETURN — collapsed by default */}
+      <div onClick={()=>setShowReturn(o=>!o)} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginTop:20, marginBottom:showReturn?12:0, cursor:"pointer", background:C.card, borderRadius:16, border:`1px solid ${C.border}`, padding:"13px 16px" }}>
+        <div>
+          <div style={{ fontSize:11, color:C.accent, fontFamily:C.mono, fontWeight:700, letterSpacing:2, marginBottom:4 }}>RETURN · APR 27</div>
+          <div style={{ fontSize:12, color:C.soft }}>CUZ → LIM → MIA · 2 flights</div>
+        </div>
+        <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+          {returnFlights.map(f=>{ const s=sc(f.status); return <div key={f.id} style={{ width:8, height:8, borderRadius:4, background:s.c }}/>; })}
+          <span style={{ fontSize:14, color:C.accent, marginLeft:4 }}>{showReturn?"▲":"▼"}</span>
+        </div>
+      </div>
+      {showReturn && <div style={{ marginTop:12 }}>{renderFlightGroup(returnFlights, showReturnAll, setShowReturnAll)}</div>}
 
       {/* Leave by card */}
-      <div style={{ background:C.card, borderRadius:20, border:`1px solid ${lc.br}`, overflow:"hidden", marginTop:8, marginBottom:14 }}>
+      <div style={{ background:C.card, borderRadius:20, border:`1px solid ${lc.br}`, overflow:"hidden", marginTop:16, marginBottom:14 }}>
         <div onClick={()=>setLeaveState(s=>s==="later"?"soon":s==="soon"?"now":"later")} style={{ background:lc.bg, padding:"13px 16px", display:"flex", alignItems:"center", gap:10, cursor:"pointer", borderBottom:`1px solid ${lc.br}` }}>
           <span style={{ fontSize:22 }}>{lc.icon}</span>
           <div style={{ flex:1 }}>
@@ -477,7 +474,7 @@ function FlightsScreen({ onTap, onAdd, leaveState, setLeaveState, navIdx, setNav
               );
             })}
           </div>
-          <div onClick={()=>alert(`Opening ${app.label} → Miami International Airport (MIA)`)} style={{ background:`linear-gradient(135deg,${app.color},${app.color}bb)`, borderRadius:14, padding:"15px 0", display:"flex", alignItems:"center", justifyContent:"center", gap:10, cursor:"pointer" }}>
+          <div onClick={()=>alert(`Opening ${app.label} → Miami International Airport`)} style={{ background:`linear-gradient(135deg,${app.color},${app.color}bb)`, borderRadius:14, padding:"15px 0", display:"flex", alignItems:"center", justifyContent:"center", gap:10, cursor:"pointer" }}>
             <NavLogo app={app} size={22}/>
             <span style={{ fontSize:15, fontWeight:800, color:"#000" }}>Get Directions in {app.label}</span>
           </div>
@@ -511,9 +508,6 @@ function WeatherScreen() {
                   <span style={{ fontSize:28 }}>{w.icon}</span>
                   <div style={{ fontSize:16, fontWeight:800, color:C.text, fontFamily:C.mono, marginTop:3 }}>{a.code}</div>
                   <div style={{ fontSize:14, fontWeight:700, color:C.text }}>{w.temp}°F</div>
-                  <div style={{ background:"rgba(0,232,122,0.1)", borderRadius:8, padding:"2px 8px", display:"inline-block", marginTop:4 }}>
-                    <span style={{ fontSize:9, color:C.green, fontFamily:C.mono, fontWeight:700 }}>LOW</span>
-                  </div>
                 </div>
                 {i<airports.length-1&&<span style={{ fontSize:16, color:C.muted, padding:"0 8px" }}>→</span>}
               </div>
@@ -548,9 +542,9 @@ function WeatherScreen() {
 function FamilyScreen() {
   const [sel, setSel] = useState(null);
   const people = [
-    { name:"Mom", initials:"M", color:"#a78bfa", flight:"DL 204", dep:"ATL", arr:"JFK", status:"On Time", eta:"4:20 PM", progress:0 },
-    { name:"Jake", initials:"J", color:"#00e87a", flight:"SW 881", dep:"ORD", arr:"LAX", status:"Departed", eta:"3:15 PM", progress:45 },
-    { name:"Sarah", initials:"S", color:"#ff5c2b", flight:"BA 178", dep:"LHR", arr:"JFK", status:"Delayed", eta:"8:00 PM", progress:70 },
+    { name:"Mom", initials:"M", color:"#a78bfa", flight:"DL 204", dep:"ATL", arr:"JFK", status:"On Time", eta:"4:20 PM" },
+    { name:"Jake", initials:"J", color:"#00e87a", flight:"SW 881", dep:"ORD", arr:"LAX", status:"Departed", eta:"3:15 PM" },
+    { name:"Sarah", initials:"S", color:"#ff5c2b", flight:"BA 178", dep:"LHR", arr:"JFK", status:"Delayed", eta:"8:00 PM" },
   ];
   return (
     <div style={{ padding:"14px 14px 100px" }}>
@@ -639,14 +633,11 @@ function PlansScreen() {
       features:["Unlimited flight tracking","Family tracker (5 members)","Unlimited share links","AI delay explanations","Weather alerts","VIP lounge finder","Priority support"], missing:[],
       cta:"Upgrade to Pro", ctaStyle:{ background:`linear-gradient(135deg,${C.accent},#007aaa)`, color:"#000" } },
     { id:"corporate", name:"Corporate", price:"$9", period:"per seat/month", color:C.purple, bg:"rgba(167,139,250,0.08)", border:"rgba(167,139,250,0.28)", tag:"FOR TEAMS",
-      features:["Everything in Pro","Admin dashboard","All employee flights","Manager delay alerts","CSV bulk import","SSO login (Google/Microsoft)","Expense integration","Dedicated account manager"], missing:[],
+      features:["Everything in Pro","Admin dashboard","All employee flights","Manager delay alerts","CSV bulk import","SSO login","Expense integration","Dedicated account manager"], missing:[],
       cta:"Contact Sales", ctaStyle:{ background:`linear-gradient(135deg,${C.purple},#7c3aed)`, color:"#fff" } },
   ];
   return (
     <div style={{ padding:"14px 14px 100px" }}>
-      <div style={{ textAlign:"center", marginBottom:20 }}>
-        <div style={{ fontSize:13, color:C.soft, lineHeight:1.6 }}>Start free. Upgrade when ready.<br/>Cancel anytime.</div>
-      </div>
       {tiers.map(t=>(
         <div key={t.id} style={{ background:t.bg, borderRadius:20, border:`2px solid ${t.border}`, padding:"20px 16px", marginBottom:16, position:"relative" }}>
           {t.tag&&<div style={{ position:"absolute", top:-13, left:"50%", transform:"translateX(-50%)", background:t.color, borderRadius:20, padding:"4px 16px", fontSize:11, fontWeight:800, color:"#000", fontFamily:C.mono, letterSpacing:1, whiteSpace:"nowrap" }}>{t.tag}</div>}
@@ -710,7 +701,7 @@ function CorporateDashboard({ onClose }) {
               </div>
               <div style={{ fontSize:24, fontWeight:800, color:C.text, fontFamily:C.mono }}>{selEmp.arr}</div>
             </div>
-            {[["ETA",selEmp.eta],["Gate",selEmp.gate],["Delay",selEmp.delay>0?`+${selEmp.delay} min`:"None"]].map(([l,v],i)=>(
+            {[["ETA",selEmp.eta],["Gate",selEmp.gate],["Delay",selEmp.delay>0?`+${selEmp.delay} min`:"None"]].map(([l,v])=>(
               <div key={l} style={{ display:"flex", justifyContent:"space-between", padding:"8px 0", borderTop:`1px solid ${C.border}` }}>
                 <span style={{ fontSize:13, color:C.soft }}>{l}</span>
                 <span style={{ fontSize:13, fontWeight:700, color:l==="Delay"&&selEmp.delay>0?C.yellow:C.text, fontFamily:C.mono }}>{v}</span>
@@ -862,8 +853,6 @@ export default function MyRunway() {
   return (
     <div style={{ background:C.bg, minHeight:"100vh", display:"flex", flexDirection:"column", fontFamily:C.sans, maxWidth:480, margin:"0 auto", position:"relative" }}>
       <style>{`::-webkit-scrollbar{display:none} *{box-sizing:border-box}`}</style>
-
-      {/* Header */}
       <div style={{ background:"rgba(4,7,14,0.98)", borderBottom:`1px solid ${C.border}`, padding:"14px 16px", display:"flex", alignItems:"center", justifyContent:"space-between", position:"sticky", top:0, zIndex:10 }}>
         <div style={{ display:"flex", alignItems:"center", gap:9 }}>
           <div style={{ width:10, height:10, borderRadius:5, background:C.orange, boxShadow:tick%2===0?`0 0 14px ${C.orange}`:"none", transition:"box-shadow 1.5s" }}/>
@@ -883,8 +872,6 @@ export default function MyRunway() {
           </div>
         </div>
       </div>
-
-      {/* Page title */}
       <div style={{ padding:"18px 16px 0" }}>
         <div style={{ fontSize:24, fontWeight:800, color:C.text, marginBottom:4 }}>
           {tab==="flights"?"My Flights":tab==="weather"?"Airport Weather":tab==="family"?"Family Tracker":tab==="plans"?"Plans & Pricing":"My Passport"}
@@ -893,18 +880,14 @@ export default function MyRunway() {
           {tab==="flights"?"Your Peru trip · Apr 22–28":tab==="weather"?"Conditions at every stop":tab==="family"?"Everyone's flights in one place":tab==="plans"?"Choose the right plan":"Your lifetime flying history"}
         </div>
       </div>
-
-      {/* Content */}
       <div style={{ flex:1 }}>
-        {tab==="flights"&&<FlightsScreen onTap={f=>alert(`${f.iata}: ${f.dep} → ${f.arr}\nStatus: ${f.status}\nGate: ${f.gate} · Terminal: ${f.terminal}\nConf: ${f.conf}`)} onAdd={()=>setShowAdd(true)} leaveState={leaveState} setLeaveState={setLeaveState} navIdx={navIdx} setNavIdx={setNavIdx}/>}
+        {tab==="flights"&&<FlightsScreen onTap={f=>alert(`${f.iata}: ${f.dep} → ${f.arr}\nStatus: ${f.status}\nGate: ${f.gate} · Terminal: ${f.terminal}\nConf#: ${f.conf}\n${f.date}`)} onAdd={()=>setShowAdd(true)} leaveState={leaveState} setLeaveState={setLeaveState} navIdx={navIdx} setNavIdx={setNavIdx}/>}
         {tab==="weather"&&<WeatherScreen/>}
         {tab==="family"&&<FamilyScreen/>}
         {tab==="passport"&&<PassportScreen/>}
         {tab==="plans"&&<PlansScreen/>}
       </div>
-
       <BottomNav active={tab} onNav={t=>setTab(t)}/>
-
       {showAdd&&<AddModal onClose={()=>setShowAdd(false)}/>}
       {showShare&&<ShareModal onClose={()=>setShowShare(false)}/>}
       {showCorp&&<CorporateDashboard onClose={()=>setShowCorp(false)}/>}
