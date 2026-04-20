@@ -341,7 +341,6 @@ function FlightsScreen({ onTap, onAdd, leaveState, setLeaveState, navIdx, setNav
   const app = NAV_APPS[navIdx];
   const outbound = FLIGHTS.filter(f=>f.trip==="outbound");
   const returnFlights = FLIGHTS.filter(f=>f.trip==="return");
-  const [showOutboundAll, setShowOutboundAll] = useState(false);
   const [showReturnAll, setShowReturnAll] = useState(false);
   const [showReturn, setShowReturn] = useState(false);
 
@@ -409,16 +408,9 @@ function FlightsScreen({ onTap, onAdd, leaveState, setLeaveState, navIdx, setNav
         </div>
       </div>
 
-      {/* OUTBOUND */}
-      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
-        <div style={{ fontSize:11, color:C.orange, fontFamily:C.mono, fontWeight:700, letterSpacing:2 }}>OUTBOUND · APR 22</div>
-        {outbound.length > 1 && (
-          <div onClick={()=>setShowOutboundAll(o=>!o)} style={{ fontSize:11, color:C.accent, cursor:"pointer", fontFamily:C.mono }}>
-            {showOutboundAll ? "Hide ▲" : `All ${outbound.length} flights ▼`}
-          </div>
-        )}
-      </div>
-      {renderFlightGroup(outbound, showOutboundAll, setShowOutboundAll)}
+      {/* OUTBOUND — always fully expanded */}
+      <div style={{ fontSize:11, color:C.orange, fontFamily:C.mono, fontWeight:700, letterSpacing:2, marginBottom:12 }}>OUTBOUND · APR 22 · {outbound.length} FLIGHTS</div>
+      {renderFlightGroup(outbound, true, ()=>{})}
 
       {/* RETURN — collapsed by default */}
       <div onClick={()=>setShowReturn(o=>!o)} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginTop:20, marginBottom:showReturn?12:0, cursor:"pointer", background:C.card, borderRadius:16, border:`1px solid ${C.border}`, padding:"13px 16px" }}>
