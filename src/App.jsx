@@ -260,8 +260,6 @@ function FlightCard({ f, onTap }) {
   );
 }
 
-// ── MODALS ─────────────────────────────────────────────────────
-
 function AddModal({ onClose }) {
   const [num, setNum] = useState("");
   const [date, setDate] = useState("");
@@ -344,18 +342,12 @@ function SettingsModal({ onClose, isDark, setIsDark, homeAddress, setHomeAddress
   const [navPref, setNavPref] = useState("waze");
   const [notifications, setNotifications] = useState(true);
   const [saved, setSaved] = useState(false);
-  function save() {
-    setHomeAddress(addr);
-    setSaved(true);
-    setTimeout(()=>setSaved(false), 2000);
-  }
+  function save() { setHomeAddress(addr); setSaved(true); setTimeout(()=>setSaved(false), 2000); }
   return (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", zIndex:60, display:"flex", flexDirection:"column", justifyContent:"flex-end" }} onClick={onClose}>
       <div onClick={e=>e.stopPropagation()} style={{ background:C.surface, borderTopLeftRadius:24, borderTopRightRadius:24, padding:"20px 20px 48px", border:`1px solid ${C.border}`, maxWidth:480, margin:"0 auto", width:"100%", maxHeight:"80vh", overflowY:"auto" }}>
         <div style={{ width:36, height:4, background:C.border, borderRadius:2, margin:"0 auto 18px" }}/>
         <div style={{ fontSize:20, fontWeight:800, color:C.text, marginBottom:20 }}>Settings</div>
-
-        {/* Theme */}
         <div style={{ marginBottom:20 }}>
           <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10 }}>APPEARANCE</div>
           <div style={{ display:"flex", gap:8 }}>
@@ -367,16 +359,12 @@ function SettingsModal({ onClose, isDark, setIsDark, homeAddress, setHomeAddress
             ))}
           </div>
         </div>
-
-        {/* Home address */}
         <div style={{ marginBottom:20 }}>
           <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10 }}>HOME ADDRESS</div>
           <div style={{ fontSize:12, color:C.soft, marginBottom:8 }}>Used to calculate your leave-by time to the airport</div>
           <input value={addr} onChange={e=>setAddr(e.target.value)} placeholder="123 Main St, Miami, FL"
             style={{ width:"100%", background:C.card, border:`1.5px solid ${addr?C.accent+"60":C.border}`, borderRadius:12, padding:"13px 14px", color:C.text, fontSize:14, outline:"none", boxSizing:"border-box" }}/>
         </div>
-
-        {/* Navigation preference */}
         <div style={{ marginBottom:20 }}>
           <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10 }}>PREFERRED NAVIGATION APP</div>
           <div style={{ display:"flex", gap:8 }}>
@@ -388,8 +376,6 @@ function SettingsModal({ onClose, isDark, setIsDark, homeAddress, setHomeAddress
             ))}
           </div>
         </div>
-
-        {/* Notifications */}
         <div style={{ marginBottom:24 }}>
           <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10 }}>NOTIFICATIONS</div>
           {[["Flight status changes","Get alerted when your flight is delayed, cancelled, or gate changes"],["Leave-by reminders","Get notified when it's time to leave for the airport"],["Landing alerts","Notify your pickup contact when you land"]].map(([title,desc],i)=>(
@@ -404,7 +390,6 @@ function SettingsModal({ onClose, isDark, setIsDark, homeAddress, setHomeAddress
             </div>
           ))}
         </div>
-
         <div onClick={save} style={{ background:saved?C.green:`linear-gradient(135deg,${C.accent},#007aaa)`, borderRadius:14, padding:"15px 0", textAlign:"center", fontWeight:800, fontSize:15, color:"#000", cursor:"pointer" }}>
           {saved?"✅ Saved!":"Save Settings"}
         </div>
@@ -412,8 +397,6 @@ function SettingsModal({ onClose, isDark, setIsDark, homeAddress, setHomeAddress
     </div>
   );
 }
-
-// ── SCREENS ────────────────────────────────────────────────────
 
 function FlightsScreen({ onTap, onAdd, leaveState, setLeaveState, navIdx, setNavIdx, homeAddress }) {
   const lc = LEAVE_CFG[leaveState];
@@ -440,15 +423,14 @@ function FlightsScreen({ onTap, onAdd, leaveState, setLeaveState, navIdx, setNav
 
   return (
     <div style={{ padding:"14px 14px 100px" }}>
-      {/* Route summary */}
       <div style={{ background:C.card, borderRadius:16, border:`1px solid ${C.border}`, padding:"14px", marginBottom:16 }}>
         <div style={{ marginBottom:12 }}>
           <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, fontWeight:700, letterSpacing:1.5, marginBottom:8 }}>OUTBOUND · APR 22</div>
           <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
             {outbound.map(f=>{ const s=sc(f.status); return (
-              <div key={f.id} onClick={()=>onTap(f)} style={{ background:"rgba(255,255,255,0.07)", border:"1px solid rgba(255,255,255,0.15)", borderRadius:20, padding:"6px 14px", cursor:"pointer", display:"flex", alignItems:"center", gap:6 }}>
-                <span style={{ fontSize:12, color:"#ffffff", fontFamily:C.mono, fontWeight:700 }}>{f.iata} · {f.dep}–{f.arr}</span>
+              <div key={f.id} onClick={()=>onTap(f)} style={{ background:`${s.c}22`, border:`1.5px solid ${s.c}`, borderRadius:20, padding:"7px 16px", cursor:"pointer", display:"flex", alignItems:"center", gap:8 }}>
                 <div style={{ width:7, height:7, borderRadius:4, background:s.c, flexShrink:0 }}/>
+                <span style={{ fontSize:12, color:s.c, fontFamily:C.mono, fontWeight:800 }}>{f.iata} · {f.dep}–{f.arr}</span>
               </div>
             );})}
           </div>
@@ -457,9 +439,9 @@ function FlightsScreen({ onTap, onAdd, leaveState, setLeaveState, navIdx, setNav
           <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, fontWeight:700, letterSpacing:1.5, marginBottom:8 }}>RETURN · APR 27</div>
           <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
             {returnFlights.map(f=>{ const s=sc(f.status); return (
-              <div key={f.id} onClick={()=>onTap(f)} style={{ background:"rgba(255,255,255,0.07)", border:"1px solid rgba(255,255,255,0.15)", borderRadius:20, padding:"6px 14px", cursor:"pointer", display:"flex", alignItems:"center", gap:6 }}>
-                <span style={{ fontSize:12, color:"#ffffff", fontFamily:C.mono, fontWeight:700 }}>{f.iata} · {f.dep}–{f.arr}</span>
+              <div key={f.id} onClick={()=>onTap(f)} style={{ background:`${s.c}22`, border:`1.5px solid ${s.c}`, borderRadius:20, padding:"7px 16px", cursor:"pointer", display:"flex", alignItems:"center", gap:8 }}>
                 <div style={{ width:7, height:7, borderRadius:4, background:s.c, flexShrink:0 }}/>
+                <span style={{ fontSize:12, color:s.c, fontFamily:C.mono, fontWeight:800 }}>{f.iata} · {f.dep}–{f.arr}</span>
               </div>
             );})}
           </div>
@@ -474,11 +456,9 @@ function FlightsScreen({ onTap, onAdd, leaveState, setLeaveState, navIdx, setNav
         </div>
       </div>
 
-      {/* Outbound — always expanded */}
       <div style={{ fontSize:11, color:C.orange, fontFamily:C.mono, fontWeight:700, letterSpacing:2, marginBottom:12 }}>OUTBOUND · APR 22 · {outbound.length} FLIGHTS</div>
       {renderFlightGroup(outbound, true, ()=>{})}
 
-      {/* Return — collapsed by default */}
       <div onClick={()=>setShowReturn(o=>!o)} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginTop:20, marginBottom:showReturn?12:16, cursor:"pointer", background:C.card, borderRadius:16, border:`1px solid ${C.border}`, padding:"13px 16px" }}>
         <div>
           <div style={{ fontSize:11, color:C.accent, fontFamily:C.mono, fontWeight:700, letterSpacing:2, marginBottom:4 }}>RETURN · APR 27</div>
@@ -491,7 +471,6 @@ function FlightsScreen({ onTap, onAdd, leaveState, setLeaveState, navIdx, setNav
       </div>
       {showReturn&&<div style={{ marginTop:4 }}>{renderFlightGroup(returnFlights, showReturnAll, setShowReturnAll)}</div>}
 
-      {/* Leave by card */}
       <div style={{ background:C.card, borderRadius:20, border:`1px solid ${lc.br}`, overflow:"hidden", marginBottom:14 }}>
         <div onClick={()=>setLeaveState(s=>s==="later"?"soon":s==="soon"?"now":"later")} style={{ background:lc.bg, padding:"13px 16px", display:"flex", alignItems:"center", gap:10, cursor:"pointer", borderBottom:`1px solid ${lc.br}` }}>
           <span style={{ fontSize:22 }}>{lc.icon}</span>
@@ -615,7 +594,6 @@ function FamilyScreen() {
           <div style={{ fontSize:13, color:C.muted }}>Track their flights alongside yours</div>
         </div>
       </div>
-
       {showAdd&&(
         <div style={{ background:C.card, borderRadius:16, border:`1px solid ${C.accent}40`, padding:"16px", marginBottom:14 }}>
           <div style={{ fontSize:13, fontWeight:700, color:C.text, marginBottom:12 }}>Add a person</div>
@@ -627,7 +605,6 @@ function FamilyScreen() {
           </div>
         </div>
       )}
-
       {people.map((p,i)=>{ const s=sc(p.status); const isSel=sel===i; return (
         <div key={i} onClick={()=>setSel(isSel?null:i)} style={{ background:C.card, borderRadius:18, border:`1px solid ${isSel?p.color+"55":C.border}`, padding:"16px", marginBottom:10, cursor:"pointer" }}>
           <div style={{ display:"flex", alignItems:"center", gap:14, marginBottom:isSel?14:0 }}>
@@ -879,19 +856,19 @@ function CorporateDashboard({ onClose }) {
           {selEmp.cancelled&&(
             <div style={{ background:"rgba(255,58,84,0.08)", border:"1px solid rgba(255,58,84,0.25)", borderRadius:14, padding:"14px", marginBottom:12 }}>
               <div style={{ fontSize:14, fontWeight:800, color:C.red, marginBottom:6 }}>⚠️ Flight Cancelled</div>
-              <div style={{ fontSize:13, color:C.soft, marginBottom:10 }}>This employee needs to be rebooked. Their travel manager has been notified.</div>
-              <div onClick={()=>alert("Opening rebooking flow for Lisa Park...\n\nIn the live app this connects to your corporate travel tool.")} style={{ background:`linear-gradient(135deg,${C.orange},#cc3300)`, borderRadius:11, padding:"12px 0", textAlign:"center", fontWeight:800, fontSize:13, color:"#fff", cursor:"pointer" }}>Rebook Flight →</div>
+              <div style={{ fontSize:13, color:C.soft, marginBottom:10 }}>This employee needs to be rebooked.</div>
+              <div onClick={()=>alert("Opening rebooking flow...")} style={{ background:`linear-gradient(135deg,${C.orange},#cc3300)`, borderRadius:11, padding:"12px 0", textAlign:"center", fontWeight:800, fontSize:13, color:"#fff", cursor:"pointer" }}>Rebook Flight →</div>
             </div>
           )}
           {selEmp.delay>0&&(
             <div style={{ background:"rgba(255,200,0,0.07)", border:"1px solid rgba(255,200,0,0.22)", borderRadius:14, padding:"14px", marginBottom:12 }}>
               <div style={{ fontSize:14, fontWeight:800, color:C.yellow, marginBottom:6 }}>⏰ Delayed {selEmp.delay} min</div>
-              <div style={{ fontSize:13, color:C.soft, marginBottom:10 }}>Downstream meetings may need to be rescheduled.</div>
-              <div onClick={()=>alert(`Sending delay notification to ${selEmp.name}'s manager...`)} style={{ background:`linear-gradient(135deg,${C.yellow},#cc9900)`, borderRadius:11, padding:"12px 0", textAlign:"center", fontWeight:800, fontSize:13, color:"#000", cursor:"pointer" }}>Notify Manager →</div>
+              <div style={{ fontSize:13, color:C.soft, marginBottom:10 }}>Downstream meetings may need rescheduling.</div>
+              <div onClick={()=>alert(`Notifying ${selEmp.name}'s manager...`)} style={{ background:`linear-gradient(135deg,${C.yellow},#cc9900)`, borderRadius:11, padding:"12px 0", textAlign:"center", fontWeight:800, fontSize:13, color:"#000", cursor:"pointer" }}>Notify Manager →</div>
             </div>
           )}
           <div style={{ display:"flex", gap:10 }}>
-            {[["📞","Call",()=>alert(`Calling ${selEmp.name} at ${selEmp.phone}...`)],["💬","Message",()=>alert(`Opening iMessage to ${selEmp.name}...`)],["🔗","Track",()=>alert(`Live tracking:\nmyrunwayapp.co/t/${selEmp.id}abc\n\nShare this with anyone picking up ${selEmp.name}.`)]].map(([icon,label,fn])=>(
+            {[["📞","Call",()=>alert(`Calling ${selEmp.name} at ${selEmp.phone}...`)],["💬","Message",()=>alert(`Opening iMessage to ${selEmp.name}...`)],["🔗","Track",()=>alert(`Live link: myrunwayapp.co/t/${selEmp.id}abc`)]].map(([icon,label,fn])=>(
               <div key={label} onClick={fn} style={{ flex:1, background:C.card, border:`1px solid ${C.border}`, borderRadius:12, padding:"12px 0", textAlign:"center", cursor:"pointer" }}>
                 <div style={{ fontSize:20, marginBottom:3 }}>{icon}</div>
                 <div style={{ fontSize:12, fontWeight:700, color:C.soft }}>{label}</div>
@@ -1036,7 +1013,7 @@ export default function MyRunway() {
           <span style={{ fontFamily:C.display, fontSize:22, color:C.accent, letterSpacing:4 }}>MY RUNWAY</span>
         </div>
         <div style={{ display:"flex", gap:6, alignItems:"center" }}>
-          <div onClick={()=>setIsDark(d=>!d)} style={{ background:isDark?"rgba(255,255,255,0.08)":"rgba(0,0,0,0.06)", border:`1px solid ${C.border}`, borderRadius:9, padding:"7px 10px", cursor:"pointer", display:"flex", alignItems:"center", gap:4 }}>
+          <div onClick={()=>setIsDark(d=>!d)} style={{ background:isDark?"rgba(255,255,255,0.08)":"rgba(0,0,0,0.06)", border:`1px solid ${C.border}`, borderRadius:9, padding:"7px 10px", cursor:"pointer" }}>
             <span style={{ fontSize:13 }}>{isDark?"☀️":"🌙"}</span>
           </div>
           <div onClick={()=>setShowSettings(true)} style={{ background:"rgba(255,255,255,0.05)", border:`1px solid ${C.border}`, borderRadius:9, padding:"7px 10px", cursor:"pointer" }}>
@@ -1045,10 +1022,10 @@ export default function MyRunway() {
           <div onClick={()=>setShowAdd(true)} style={{ background:`linear-gradient(135deg,${C.accent},#007aaa)`, borderRadius:9, padding:"7px 12px", cursor:"pointer" }}>
             <span style={{ fontSize:12, color:"#000", fontWeight:800 }}>+ Add Flight</span>
           </div>
-          <div onClick={()=>setShowCorp(true)} style={{ background:"rgba(167,139,250,0.08)", border:"1px solid rgba(167,139,250,0.25)", borderRadius:9, padding:"7px 10px", cursor:"pointer", display:"flex", alignItems:"center", gap:3 }}>
+          <div onClick={()=>setShowCorp(true)} style={{ background:"rgba(167,139,250,0.08)", border:"1px solid rgba(167,139,250,0.25)", borderRadius:9, padding:"7px 10px", cursor:"pointer" }}>
             <span style={{ fontSize:13 }}>🏢</span>
           </div>
-          <div onClick={()=>setShowShare(true)} style={{ background:"rgba(0,200,240,0.07)", border:"1px solid rgba(0,200,240,0.15)", borderRadius:9, padding:"7px 10px", cursor:"pointer", display:"flex", alignItems:"center", gap:3 }}>
+          <div onClick={()=>setShowShare(true)} style={{ background:"rgba(0,200,240,0.07)", border:"1px solid rgba(0,200,240,0.15)", borderRadius:9, padding:"7px 10px", cursor:"pointer" }}>
             <span style={{ fontSize:13 }}>🔗</span>
           </div>
         </div>
