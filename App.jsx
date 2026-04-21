@@ -236,26 +236,13 @@ function FlightCard({ f, onTap }) {
           <div style={{ fontSize:13, color:"#a8c8e8", fontWeight:600, marginTop:4 }}>{f.arrTime}</div>
         </div>
       </div>
-      <div style={{ display:"flex", gap:6, flexWrap:"wrap", justifyContent:"center", marginBottom:f.wx?12:0 }}>
+      <div style={{ display:"flex", gap:6, flexWrap:"wrap", justifyContent:"center", marginBottom:0 }}>
         <span style={{ background:C.surface, borderRadius:8, padding:"5px 11px", fontSize:12, color:C.soft, border:`1px solid ${C.border}` }}>Gate <b style={{ color:C.text, fontFamily:C.mono }}>{f.gate}</b></span>
         <span style={{ background:C.surface, borderRadius:8, padding:"5px 11px", fontSize:12, color:C.soft, border:`1px solid ${C.border}` }}>Terminal <b style={{ color:C.text, fontFamily:C.mono }}>{f.terminal}</b></span>
         {f.conf&&<span style={{ background:"rgba(167,139,250,0.1)", borderRadius:8, padding:"5px 11px", fontSize:12, color:C.purple, border:"1px solid rgba(167,139,250,0.25)", fontFamily:C.mono }}>CONF# {f.conf}</span>}
         {f.date&&<span style={{ background:C.surface, borderRadius:8, padding:"5px 11px", fontSize:12, color:C.soft, border:`1px solid ${C.border}` }}>{f.date}</span>}
       </div>
-      {f.wx&&(
-        <div style={{ display:"flex", gap:8, paddingTop:12, borderTop:`1px solid ${C.border}` }}>
-          {[["dep",f.dep,f.wx.dep],["arr",f.arr,f.wx.arr]].map(([type,code,w])=>(
-            <div key={type} style={{ flex:1, display:"flex", alignItems:"center", gap:8, background:C.surface, borderRadius:11, padding:"10px 12px", border:`1px solid ${C.border}` }}>
-              <span style={{ fontSize:20 }}>{w.icon}</span>
-              <div style={{ flex:1 }}>
-                <div style={{ fontSize:11, color:C.soft, marginBottom:2 }}>{code}</div>
-                <div style={{ fontSize:14, fontWeight:700, color:C.text }}>{w.temp}° <span style={{ fontSize:12, color:C.soft, fontWeight:400 }}>{w.cond}</span></div>
-                <div style={{ fontSize:11, color:C.muted }}>💨 {w.wind}mph</div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+
     </div>
   );
 }
