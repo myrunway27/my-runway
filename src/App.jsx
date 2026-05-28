@@ -1352,7 +1352,7 @@ export default function MyRunway() {
   const [showCorp, setShowCorp] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showCancellations, setShowCancellations] = useState(false);
-  const [showCancelAlert, setShowCancelAlert] = useState(true);
+  const [showCancelAlert, setShowCancelAlert] = useState(false); // Only shows when real cancellation detected
   const cancelledFlight = FLIGHTS[0]; // Demo: LY 018 cancellation alert
   const [leaveState, setLeaveState] = useState("later");
   const [navIdx, setNavIdx] = useState(0);
