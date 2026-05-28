@@ -24,7 +24,6 @@ const FLIGHTS = [
     dep:"MIA", arr:"TLV", depTime:"2:30 PM", arrTime:"9:30 AM+1",
     status:"Scheduled", progress:0, gate:"TBD", terminal:"TBD",
     aircraft:"Boeing 787-9", date:"Sun Jun 14, 2026", conf:"8ZEH6P", trip:"outbound",
-    passengers:"6 passengers · Mezan, Asaf, Eliav, Itai, Lielle, Mattan",
     wx:{
       dep:{ icon:"🌤️", temp:88, cond:"Sunny", wind:10, note:"Great departure conditions" },
       arr:{ icon:"☀️", temp:82, cond:"Sunny", wind:14, note:"Beautiful Tel Aviv morning" },
@@ -36,7 +35,6 @@ const FLIGHTS = [
     dep:"TLV", arr:"ZRH", depTime:"8:00 AM", arrTime:"11:20 AM",
     status:"Scheduled", progress:0, gate:"TBD", terminal:"3",
     aircraft:"Boeing 737-800", date:"Thu Jul 2, 2026", conf:"8ZEH6P", trip:"return",
-    passengers:"6 passengers · Mezan, Asaf, Eliav, Itai, Lielle, Mattan",
     wx:{
       dep:{ icon:"☀️", temp:84, cond:"Sunny", wind:12, note:"Warm Tel Aviv morning" },
       arr:{ icon:"⛅", temp:68, cond:"Partly Cloudy", wind:8, note:"Mild Zurich afternoon" },
@@ -59,7 +57,6 @@ const FLIGHTS = [
     dep:"ZRH", arr:"MIA", depTime:"1:00 PM", arrTime:"5:25 PM",
     status:"Scheduled", progress:0, gate:"TBD", terminal:"TBD",
     aircraft:"Boeing 777-300ER", date:"Thu Jul 2, 2026", conf:"8ZEH6P", trip:"return",
-    passengers:"6 passengers · Mezan, Asaf, Eliav, Itai, Lielle, Mattan",
     wx:{
       dep:{ icon:"⛅", temp:68, cond:"Partly Cloudy", wind:8, note:"Mild Zurich afternoon" },
       arr:{ icon:"🌤️", temp:90, cond:"Sunny", wind:15, note:"Hot Miami afternoon — welcome home!" },
@@ -75,9 +72,9 @@ const NAV_APPS = [
 ];
 
 const LEAVE_CFG = {
-  later:{ c:"#00e87a", bg:"rgba(0,232,122,0.07)", br:"rgba(0,232,122,0.18)", icon:"✅", label:"ON TRACK", time:"6:45 AM", sub:"Leave in 2h 22m" },
-  soon: { c:"#ffc800", bg:"rgba(255,200,0,0.07)", br:"rgba(255,200,0,0.18)", icon:"⏰", label:"LEAVING SOON", time:"6:45 AM", sub:"Leave in 48 min" },
-  now:  { c:"#ff3a54", bg:"rgba(255,58,84,0.07)", br:"rgba(255,58,84,0.18)", icon:"🚨", label:"LEAVE NOW", time:"6:45 AM", sub:"Only 12 minutes!" },
+  later:{ c:"#00e87a", bg:"rgba(0,232,122,0.07)", br:"rgba(0,232,122,0.18)", icon:"✅", label:"ON TRACK", time:"11:00 AM", sub:"Leave in 2h 22m · LY 018 departs 2:30 PM" },
+  soon: { c:"#ffc800", bg:"rgba(255,200,0,0.07)", br:"rgba(255,200,0,0.18)", icon:"⏰", label:"LEAVING SOON", time:"11:00 AM", sub:"Leave in 48 min · LY 018 departs 2:30 PM" },
+  now:  { c:"#ff3a54", bg:"rgba(255,58,84,0.07)", br:"rgba(255,58,84,0.18)", icon:"🚨", label:"LEAVE NOW", time:"11:00 AM", sub:"Only 12 minutes! LY 018 departs 2:30 PM" },
 };
 
 const EMPLOYEES = [
@@ -428,8 +425,8 @@ function CancellationScreen({ onBack }) {
     true, true, true, // SMS, Email, Push all on by default
   ]);
   const history = [
-    { id:"c1", iata:"AA 1307", dep:"MIA", arr:"LIM", date:"Wed Apr 22, 2026", detectedAt:"6 hours before departure", notifiedAt:"Never — airline did not notify", status:"Cancelled", rebookedOn:"AA 1309", savings:"Caught early — rebooking saved $340" },
-    { id:"c2", iata:"LA 2166", dep:"LIM", arr:"CUZ", date:"Apr 22, 2026", detectedAt:"3 hours before departure", notifiedAt:"1 hour before departure", status:"Cancelled", rebookedOn:"H2 1022", savings:"Detected 2hrs before airline alert" },
+    { id:"c1", iata:"AA 100", dep:"MIA", arr:"JFK", date:"Example flight", detectedAt:"6 hours before departure", notifiedAt:"Never — airline did not notify", status:"Cancelled", rebookedOn:"AA 102", savings:"Caught early — rebooking saved $340" },
+    { id:"c2", iata:"DL 200", dep:"ATL", arr:"LAX", date:"Example flight", detectedAt:"3 hours before departure", notifiedAt:"1 hour before departure", status:"Cancelled", rebookedOn:"DL 202", savings:"Detected 2hrs before airline alert" },
   ];
   return (
     <div style={{ position:"fixed", inset:0, background:C.bg, zIndex:50, overflowY:"auto" }}>
@@ -561,7 +558,7 @@ function AddModal({ onClose }) {
 function ShareModal({ onClose }) {
   const [note, setNote] = useState("");
   const [copied, setCopied] = useState(false);
-  const autoMsg = `Landing LIM at 8:30 PM on American Airlines AA 1307. Connecting via LIM — next flight LA 2166 departs 11:40 PM.`;
+  const autoMsg = `Landing TLV (Ben Gurion) at 9:30 AM on El Al LY 018. Departing MIA 2:30 PM Sun Jun 14. Arriving Mon Jun 15.`;
   const shareLink = "myrunwayapp.co/t/abc123k";
   function share(method) {
     if (method==="Copy Link") { setCopied(true); setTimeout(()=>setCopied(false),2000); }
@@ -703,7 +700,7 @@ function FlightsScreen({ onTap, onAdd, leaveState, setLeaveState, navIdx, setNav
       {/* Route summary */}
       <div style={{ background:C.card, borderRadius:16, border:`1px solid ${C.border}`, padding:"14px", marginBottom:16 }}>
         <div style={{ marginBottom:12 }}>
-          <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, fontWeight:700, letterSpacing:1.5, marginBottom:8 }}>OUTBOUND · APR 22</div>
+          <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, fontWeight:700, letterSpacing:1.5, marginBottom:8 }}>OUTBOUND · JUN 14</div>
           <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
             {outbound.map(f=>{ const s=sc(f.status); return (
               <div key={f.id} onClick={()=>onTap(f)} style={{ background:`${s.c}22`, border:`1.5px solid ${s.c}`, borderRadius:20, padding:"7px 16px", cursor:"pointer", display:"flex", alignItems:"center", gap:8 }}>
@@ -714,7 +711,7 @@ function FlightsScreen({ onTap, onAdd, leaveState, setLeaveState, navIdx, setNav
           </div>
         </div>
         <div style={{ borderTop:`1px solid ${C.border}`, paddingTop:12 }}>
-          <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, fontWeight:700, letterSpacing:1.5, marginBottom:8 }}>RETURN · APR 27</div>
+          <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, fontWeight:700, letterSpacing:1.5, marginBottom:8 }}>RETURN · JUL 2</div>
           <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
             {returnFlights.map(f=>{ const s=sc(f.status); return (
               <div key={f.id} onClick={()=>onTap(f)} style={{ background:`${s.c}22`, border:`1.5px solid ${s.c}`, borderRadius:20, padding:"7px 16px", cursor:"pointer", display:"flex", alignItems:"center", gap:8 }}>
@@ -741,8 +738,8 @@ function FlightsScreen({ onTap, onAdd, leaveState, setLeaveState, navIdx, setNav
       {/* Return — collapsed by default */}
       <div onClick={()=>setShowReturn(o=>!o)} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginTop:20, marginBottom:showReturn?12:16, cursor:"pointer", background:C.card, borderRadius:16, border:`1px solid ${C.border}`, padding:"13px 16px" }}>
         <div>
-          <div style={{ fontSize:11, color:C.accent, fontFamily:C.mono, fontWeight:700, letterSpacing:2, marginBottom:4 }}>RETURN · APR 27</div>
-          <div style={{ fontSize:12, color:C.soft }}>CUZ → LIM → MIA · 2 flights</div>
+          <div style={{ fontSize:11, color:C.accent, fontFamily:C.mono, fontWeight:700, letterSpacing:2, marginBottom:4 }}>RETURN · JUL 2</div>
+          <div style={{ fontSize:12, color:C.soft }}>TLV → ZRH → MIA · 2 flights</div>
         </div>
         <div style={{ display:"flex", alignItems:"center", gap:8 }}>
           {returnFlights.map(f=>{ const s=sc(f.status); return <div key={f.id} style={{ width:8, height:8, borderRadius:4, background:s.c }}/>; })}
@@ -765,7 +762,7 @@ function FlightsScreen({ onTap, onAdd, leaveState, setLeaveState, navIdx, setNav
           <div style={{ fontSize:11, color:C.muted, letterSpacing:2, fontFamily:C.mono, fontWeight:700, marginBottom:4, textAlign:"center" }}>LEAVE HOME BY</div>
           <div style={{ fontFamily:C.display, fontSize:64, color:lc.c, lineHeight:1, letterSpacing:2, marginBottom:16, textAlign:"center" }}>{lc.time}</div>
           <div style={{ display:"flex", background:C.surface, borderRadius:12, overflow:"hidden", marginBottom:14, border:`1px solid ${C.border}` }}>
-            {[["🚗","Drive","38 min"],["🚦","Traffic","+12m"],["📍","Dist","22 mi"],["✈️","Buffer","2.5h"]].map(([icon,label,val],i)=>(
+            {[["🚗","Drive","45 min"],["🚦","Traffic","+15m"],["📍","Dist","28 mi"],["✈️","Buffer","3h"]].map(([icon,label,val],i)=>(
               <div key={label} style={{ flex:1, padding:"11px 0", textAlign:"center", borderRight:i<3?`1px solid ${C.border}`:"none" }}>
                 <div style={{ fontSize:18, marginBottom:3 }}>{icon}</div>
                 <div style={{ fontSize:9, color:C.muted, fontFamily:C.mono, letterSpacing:0.8, marginBottom:2 }}>{label}</div>
@@ -802,14 +799,14 @@ function FlightsScreen({ onTap, onAdd, leaveState, setLeaveState, navIdx, setNav
           <span style={{ fontSize:22 }}>🎫</span>
           <div style={{ flex:1 }}>
             <div style={{ fontSize:14, fontWeight:800, color:C.accent, marginBottom:2 }}>Check-in Opens Soon!</div>
-            <div style={{ fontSize:12, color:C.soft }}>AA 1307 · MIA → LIM · Wed Apr 22</div>
+            <div style={{ fontSize:12, color:C.soft }}>LY 018 · MIA → TLV · Sun Jun 14</div>
           </div>
           <div style={{ background:"rgba(0,200,240,0.15)", borderRadius:8, padding:"4px 10px", border:"1px solid rgba(0,200,240,0.3)" }}>
             <span style={{ fontSize:10, color:C.accent, fontFamily:C.mono, fontWeight:700 }}>24H ALERT</span>
           </div>
         </div>
         <div style={{ display:"flex", gap:8 }}>
-          <div onClick={()=>alert("Opening AA.com check-in for flight AA 1307...\n\nIn the live app this opens the airline check-in page directly!")} style={{ flex:1, background:`linear-gradient(135deg,${C.accent},#007aaa)`, borderRadius:11, padding:"11px 0", textAlign:"center", cursor:"pointer" }}>
+          <div onClick={()=>alert("Opening elal.com check-in for LY 018...\n\nIn the live app this opens the airline check-in page directly!")} style={{ flex:1, background:`linear-gradient(135deg,${C.accent},#007aaa)`, borderRadius:11, padding:"11px 0", textAlign:"center", cursor:"pointer" }}>
             <span style={{ fontSize:13, fontWeight:800, color:"#000" }}>Check In Now →</span>
           </div>
           <div onClick={()=>alert("Reminder set! We'll notify you when check-in opens.")} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:11, padding:"11px 14px", textAlign:"center", cursor:"pointer" }}>
@@ -1353,7 +1350,7 @@ export default function MyRunway() {
   const [showSettings, setShowSettings] = useState(false);
   const [showCancellations, setShowCancellations] = useState(false);
   const [showCancelAlert, setShowCancelAlert] = useState(false); // Only shows when real cancellation detected
-  const cancelledFlight = FLIGHTS[0]; // Demo: LY 018 cancellation alert
+  const cancelledFlight = FLIGHTS[0]; // Demo alert
   const [leaveState, setLeaveState] = useState("later");
   const [navIdx, setNavIdx] = useState(0);
   const [tick, setTick] = useState(0);
