@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 
-
 const DARK = {
   bg:"#04070e", surface:"#090f1c", card:"#0d1525", border:"#13203a",
   accent:"#00c8f0", orange:"#ff5c2b", green:"#00e87a", yellow:"#ffc800",
@@ -21,70 +20,51 @@ let C = DARK;
 
 const FLIGHTS = [
   {
-    id:"f1", iata:"AA 1307", code:"AA", airline:"American Airlines",
-    dep:"MIA", arr:"LIM", depTime:"3:51 PM", arrTime:"8:30 PM",
-    status:"Scheduled", progress:0, gate:"TBD", terminal:"D",
-    aircraft:"Boeing 737", date:"Wed Apr 22, 2026", conf:"WKZGIC", trip:"outbound",
+    id:"f1", iata:"LY 018", code:"LY", airline:"El Al Israel Airlines",
+    dep:"MIA", arr:"TLV", depTime:"2:30 PM", arrTime:"9:30 AM+1",
+    status:"Scheduled", progress:0, gate:"TBD", terminal:"TBD",
+    aircraft:"Boeing 787-9", date:"Sun Jun 14, 2026", conf:"8ZEH6P", trip:"outbound",
+    passengers:"6 passengers · Mezan, Asaf, Eliav, Itai, Lielle, Mattan",
     wx:{
-      dep:{ icon:"🌤️", temp:82, cond:"Partly Cloudy", wind:12, note:"Good departure conditions" },
-      arr:{ icon:"🌥️", temp:68, cond:"Overcast", wind:9, note:"Typical Lima overcast" },
+      dep:{ icon:"🌤️", temp:88, cond:"Sunny", wind:10, note:"Great departure conditions" },
+      arr:{ icon:"☀️", temp:82, cond:"Sunny", wind:14, note:"Beautiful Tel Aviv morning" },
     },
     conn:null,
   },
   {
-    id:"f2", iata:"LA 2166", code:"LA", airline:"LATAM Airlines",
-    dep:"LIM", arr:"CUZ", depTime:"11:40 PM", arrTime:"1:00 AM",
-    status:"Scheduled", progress:0, gate:"TBD", terminal:"TBD",
-    aircraft:"Airbus A319", date:"Apr 22–23, 2026", conf:"NATBMU", trip:"outbound",
+    id:"f2", iata:"LY 347", code:"LY", airline:"El Al Israel Airlines",
+    dep:"TLV", arr:"ZRH", depTime:"8:00 AM", arrTime:"11:20 AM",
+    status:"Scheduled", progress:0, gate:"TBD", terminal:"3",
+    aircraft:"Boeing 737-800", date:"Thu Jul 2, 2026", conf:"8ZEH6P", trip:"return",
+    passengers:"6 passengers · Mezan, Asaf, Eliav, Itai, Lielle, Mattan",
     wx:{
-      dep:{ icon:"🌥️", temp:66, cond:"Overcast", wind:8, note:"Normal Lima night" },
-      arr:{ icon:"🌙", temp:44, cond:"Clear night", wind:5, note:"Cusco at 11,200ft — cold!" },
+      dep:{ icon:"☀️", temp:84, cond:"Sunny", wind:12, note:"Warm Tel Aviv morning" },
+      arr:{ icon:"⛅", temp:68, cond:"Partly Cloudy", wind:8, note:"Mild Zurich afternoon" },
     },
     conn:{
-      arrTerminal:"International Terminal", arrGate:"TBD",
-      depTerminal:"Domestic Terminal", depGate:"TBD",
-      walkMins:35, layoverMins:190, buffer:155,
+      arrTerminal:"Terminal 2", arrGate:"TBD",
+      depTerminal:"Terminal 2", depGate:"TBD",
+      walkMins:25, layoverMins:100, buffer:75,
       transport:"Walk within terminal",
-      security:"Immigration & passport control required",
+      security:"Security screening required — allow extra time with children",
       steps:[
-        { icon:"🛬", label:"Deplane at LIM International Terminal", mins:5 },
-        { icon:"🛂", label:"Immigration & passport control", mins:25 },
-        { icon:"🚶", label:"Walk to domestic gates", mins:5 },
+        { icon:"🛬", label:"Deplane at ZRH Terminal 2", mins:10 },
+        { icon:"🔒", label:"Security screening", mins:20 },
+        { icon:"🚶", label:"Walk to departure gate", mins:10 },
       ],
     },
   },
   {
-    id:"f3", iata:"H2 5012", code:"H2", airline:"Sky Airline",
-    dep:"CUZ", arr:"LIM", depTime:"6:15 PM", arrTime:"8:00 PM",
+    id:"f3", iata:"LX 064", code:"LX", airline:"Swiss International Air Lines",
+    dep:"ZRH", arr:"MIA", depTime:"1:00 PM", arrTime:"5:25 PM",
     status:"Scheduled", progress:0, gate:"TBD", terminal:"TBD",
-    aircraft:"Airbus A320", date:"Mon Apr 27, 2026", conf:"JNNAYS", trip:"return",
+    aircraft:"Boeing 777-300ER", date:"Thu Jul 2, 2026", conf:"8ZEH6P", trip:"return",
+    passengers:"6 passengers · Mezan, Asaf, Eliav, Itai, Lielle, Mattan",
     wx:{
-      dep:{ icon:"⛅", temp:55, cond:"Partly Cloudy", wind:10, note:"Watch for mountain weather" },
-      arr:{ icon:"🌥️", temp:67, cond:"Overcast", wind:8, note:"Typical Lima evening" },
+      dep:{ icon:"⛅", temp:68, cond:"Partly Cloudy", wind:8, note:"Mild Zurich afternoon" },
+      arr:{ icon:"🌤️", temp:90, cond:"Sunny", wind:15, note:"Hot Miami afternoon — welcome home!" },
     },
     conn:null,
-  },
-  {
-    id:"f4", iata:"AA 988", code:"AA", airline:"American Airlines",
-    dep:"LIM", arr:"MIA", depTime:"11:45 PM", arrTime:"6:40 AM",
-    status:"Scheduled", progress:0, gate:"TBD", terminal:"TBD",
-    aircraft:"Boeing 737", date:"Apr 27–28, 2026", conf:"GPHCIF", trip:"return",
-    wx:{
-      dep:{ icon:"🌙", temp:64, cond:"Clear night", wind:7, note:"Clear departure" },
-      arr:{ icon:"🌤️", temp:79, cond:"Sunny", wind:14, note:"Morning arrival Miami" },
-    },
-    conn:{
-      arrTerminal:"Domestic Terminal", arrGate:"TBD",
-      depTerminal:"International Terminal", depGate:"TBD",
-      walkMins:40, layoverMins:225, buffer:185,
-      transport:"Walk between terminals",
-      security:"Check-in & security screening required",
-      steps:[
-        { icon:"🛬", label:"Deplane domestic terminal", mins:10 },
-        { icon:"🚶", label:"Walk to international terminal", mins:15 },
-        { icon:"🛂", label:"Check-in AA / bag drop", mins:15 },
-      ],
-    },
   },
 ];
 
@@ -848,7 +828,7 @@ function FlightsScreen({ onTap, onAdd, leaveState, setLeaveState, navIdx, setNav
           </div>
         </div>
         <div style={{ display:"flex", gap:8, marginBottom:10 }}>
-          {[["✈️ MIA→LIM","312 kg"],["✈️ LIM→CUZ","89 kg"],["✈️ CUZ→LIM","89 kg"],["✈️ LIM→MIA","312 kg"]].map(([leg,co2])=>(
+          {[["✈️ MIA→TLV","890 kg"],["✈️ TLV→ZRH","312 kg"],["✈️ ZRH→MIA","756 kg"]].map(([leg,co2])=>(
             <div key={leg} style={{ flex:1, background:C.surface, borderRadius:9, padding:"8px 4px", textAlign:"center", border:`1px solid ${C.border}` }}>
               <div style={{ fontSize:9, color:C.soft, marginBottom:3 }}>{leg}</div>
               <div style={{ fontSize:11, fontWeight:800, color:C.green, fontFamily:C.mono }}>{co2}</div>
@@ -1373,12 +1353,12 @@ export default function MyRunway() {
   const [showSettings, setShowSettings] = useState(false);
   const [showCancellations, setShowCancellations] = useState(false);
   const [showCancelAlert, setShowCancelAlert] = useState(true);
-  const cancelledFlight = FLIGHTS[0]; // Demo: AA 1307 is "cancelled"
+  const cancelledFlight = FLIGHTS[0]; // Demo: LY 018 cancellation alert
   const [leaveState, setLeaveState] = useState("later");
   const [navIdx, setNavIdx] = useState(0);
   const [tick, setTick] = useState(0);
   const [isDark, setIsDark] = useState(true);
-  const [homeAddress, setHomeAddress] = useState("Miami, FL");
+  const [homeAddress, setHomeAddress] = useState("Miami, FL (Davie)");
 
   C = isDark ? DARK : LIGHT;
 
@@ -1419,7 +1399,7 @@ export default function MyRunway() {
           {tab==="flights"?"My Flights":tab==="weather"?"Airport Weather":tab==="family"?"Family Tracker":tab==="plans"?"Plans & Pricing":"My Passport"}
         </div>
         <div style={{ fontSize:13, color:C.soft }}>
-          {tab==="flights"?"Your Peru trip · Apr 22–28":tab==="weather"?"Conditions at every stop":tab==="family"?"Everyone's flights in one place":tab==="plans"?"Choose the right plan":"Your lifetime flying history"}
+          {tab==="flights"?"Israel family trip · Jun 14 – Jul 2, 2026":tab==="weather"?"Conditions at every stop":tab==="family"?"Everyone's flights in one place":tab==="plans"?"Choose the right plan":"Your lifetime flying history"}
         </div>
       </div>
       <div style={{ flex:1 }}>
