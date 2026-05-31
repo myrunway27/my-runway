@@ -24,6 +24,7 @@ const FLIGHTS = [
     dep:"MIA", arr:"TLV", depTime:"2:30 PM", arrTime:"9:30 AM+1",
     status:"Scheduled", progress:0, gate:"TBD", terminal:"TBD",
     aircraft:"Boeing 787-9", date:"Sun Jun 14, 2026", conf:"8ZEH6P", trip:"outbound",
+    inbound:"Arriving from TLV, on the ground at MIA — on time",
     wx:{
       dep:{ icon:"🌤️", temp:88, cond:"Sunny", wind:10, note:"Great departure conditions" },
       arr:{ icon:"☀️", temp:82, cond:"Sunny", wind:14, note:"Beautiful Tel Aviv morning" },
@@ -172,9 +173,41 @@ async function fetchFlightAware(flightNumber, date) {
       arrDelay: f.arrival_delay ? Math.round(f.arrival_delay / 60) : 0,
       depTime: f.scheduled_out?.slice(11, 16) || null,
       arrTime: f.scheduled_in?.slice(11, 16) || null,
+      inboundId: f.inbound_fae_flight_id || null,
     };
   } catch (e) {
     console.error("FlightAware error:", e);
+    return null;
+  }
+}
+
+// Fetch the status of the inbound aircraft (the plane that becomes your flight)
+async function fetchInboundStatus(inboundId) {
+  if (!inboundId) return null;
+  const url = `https://aeroapi.flightaware.com/aeroapi/flights/${inboundId}`;
+  try {
+    const res = await fetch(url, {
+      headers: { "x-apikey": FLIGHTAWARE_KEY, "Accept": "application/json; charset=UTF-8" },
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const f = data?.flights?.[0];
+    if (!f) return null;
+    const origin = f.origin?.code_iata || f.origin?.code || "origin";
+    const delay = f.arrival_delay ? Math.round(f.arrival_delay / 60) : 0;
+    const st = f.status || "";
+    if (st.includes("Arrived") || st.includes("Landed")) {
+      return `Arriving from ${origin}, already on the ground — ${delay > 15 ? `${delay} min late` : "on time"}`;
+    }
+    if (st.includes("En Route")) {
+      return `Arriving from ${origin}, in the air — ${delay > 15 ? `running ${delay} min late ⚠️` : "on time"}`;
+    }
+    if (st.includes("Scheduled")) {
+      return `Arriving from ${origin}, not yet departed — ${delay > 15 ? `expected ${delay} min late ⚠️` : "on time"}`;
+    }
+    return `Arriving from ${origin} — ${st}`;
+  } catch (e) {
+    console.error("Inbound fetch error:", e);
     return null;
   }
 }
@@ -209,6 +242,7 @@ async function fetchFlightInfo(flightNumber, date) {
     avRaw === "scheduled" ? "Scheduled" : null;
 
   // FlightAware wins on status & gates, AviationStack fills gaps, AeroDataBox as backup
+  const inbound = fw?.inboundId ? await fetchInboundStatus(fw.inboundId) : null;
   return {
     status: faStatusNorm || avStatusNorm || null,
     depTime: fw?.depTime || av?.depTime || null,
@@ -218,6 +252,7 @@ async function fetchFlightInfo(flightNumber, date) {
     gate: fw?.depGate || av?.depGate || ae?.gate || null,
     depTerminal: fw?.depTerminal || av?.depTerminal || ae?.depTerminal || null,
     arrTerminal: fw?.arrTerminal || av?.arrTerminal || ae?.arrTerminal || null,
+    inbound,
   };
 }
 
@@ -347,10 +382,11 @@ function FlightCard({ f, onTap }) {
   const terminal = liveData?.depTerminal || f.terminal;
   const status = liveData?.status || f.status;
   const delay = liveData?.depDelay || 0;
+  const inbound = liveData?.inbound || f.inbound;
   const ls = sc(status);
 
   return (
-    <div onClick={()=>onTap(f)} style={{ background:C.card, borderRadius:20, border:`1px solid ${f.status==="Delayed"?"rgba(255,200,0,0.3)":f.status==="Gate Change"?"rgba(167,139,250,0.3)":C.border}`, padding:16, marginBottom:10, cursor:"pointer" }}>
+    <div onClick={()=>onTap(f)} style={{ background:C.card, borderRadius:20, border:`1px solid ${f.status==="Delayed"?"rgba(255,200,0,0.3)":f.status==="Gate Change"?"rgba(167,139,250,0.3)":C.border}`, padding:16, marginBottom:10, cursor:"pointer", animation:"cardIn 0.4s ease" }}>
       <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:14 }}>
         <AirlineLogo code={f.code} size={30}/>
         <div style={{ flex:1 }}>
@@ -377,9 +413,20 @@ function FlightCard({ f, onTap }) {
       <div style={{ display:"flex", gap:6, flexWrap:"wrap", justifyContent:"center", marginBottom:0 }}>
         <span style={{ background:gate!=="TBD"?"rgba(0,200,240,0.1)":C.surface, borderRadius:8, padding:"5px 11px", fontSize:12, color:gate!=="TBD"?C.accent:C.soft, border:`1px solid ${gate!=="TBD"?"rgba(0,200,240,0.3)":C.border}` }}>Gate <b style={{ color:gate!=="TBD"?C.accent:C.text, fontFamily:C.mono }}>{gate}</b></span>
         <span style={{ background:terminal!=="TBD"?"rgba(0,200,240,0.1)":C.surface, borderRadius:8, padding:"5px 11px", fontSize:12, color:terminal!=="TBD"?C.accent:C.soft, border:`1px solid ${terminal!=="TBD"?"rgba(0,200,240,0.3)":C.border}` }}>Terminal <b style={{ color:terminal!=="TBD"?C.accent:C.text, fontFamily:C.mono }}>{terminal}</b></span>
-        {f.conf&&<span style={{ background:"rgba(167,139,250,0.1)", borderRadius:8, padding:"5px 11px", fontSize:12, color:C.purple, border:"1px solid rgba(167,139,250,0.25)", fontFamily:C.mono }}>CONF# {f.conf}</span>}
+        {f.conf&&<span style={{ background:C.surface, borderRadius:8, padding:"5px 11px", fontSize:12, color:C.soft, border:`1px solid ${C.border}`, fontFamily:C.mono }}>CONF# {f.conf}</span>}
         {f.date&&<span style={{ background:C.surface, borderRadius:8, padding:"5px 11px", fontSize:12, color:C.soft, border:`1px solid ${C.border}` }}>{f.date}</span>}
       </div>
+
+      {/* ── Inbound Aircraft Tracker (the feature flyers love) ── */}
+      {inbound&&(
+        <div style={{ marginTop:12, paddingTop:12, borderTop:`1px solid ${C.border}`, display:"flex", alignItems:"center", gap:10 }}>
+          <span style={{ fontSize:16 }}>🔄</span>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:0.5, marginBottom:2 }}>YOUR INCOMING AIRCRAFT</div>
+            <div style={{ fontSize:12, color:C.soft }}>{inbound}</div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
@@ -679,6 +726,7 @@ function FlightsScreen({ onTap, onAdd, leaveState, setLeaveState, navIdx, setNav
   const returnFlights = FLIGHTS.filter(f=>f.trip==="return");
   const [showReturn, setShowReturn] = useState(false);
   const [showReturnAll, setShowReturnAll] = useState(false);
+  const [showExtras, setShowExtras] = useState(false);
 
   function renderFlightGroup(flights, showAll, setShowAll) {
     return flights.map((f, i) => (
@@ -697,6 +745,21 @@ function FlightsScreen({ onTap, onAdd, leaveState, setLeaveState, navIdx, setNav
 
   return (
     <div style={{ padding:"14px 14px 100px" }}>
+      {/* ── HERO: Live Monitoring Banner (our superpower) ── */}
+      <div style={{ background:"linear-gradient(135deg,rgba(0,232,122,0.1),rgba(0,200,240,0.06))", borderRadius:18, border:"1px solid rgba(0,232,122,0.3)", padding:"16px", marginBottom:16, position:"relative", overflow:"hidden" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+          <div style={{ position:"relative", width:44, height:44, flexShrink:0 }}>
+            <div style={{ position:"absolute", inset:0, borderRadius:22, background:"rgba(0,232,122,0.15)", animation:"pulse 2s infinite" }}/>
+            <div style={{ position:"absolute", inset:0, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22 }}>🛡️</div>
+          </div>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:15, fontWeight:800, color:C.green, marginBottom:2 }}>All flights protected</div>
+            <div style={{ fontSize:12, color:C.soft, lineHeight:1.4 }}>Checking every 15 min across 3 sources. We alert you before the airline does.</div>
+          </div>
+        </div>
+        <style>{`@keyframes pulse{0%{transform:scale(1);opacity:1}50%{transform:scale(1.15);opacity:0.5}100%{transform:scale(1);opacity:1}}`}</style>
+      </div>
+
       {/* Route summary */}
       <div style={{ background:C.card, borderRadius:16, border:`1px solid ${C.border}`, padding:"14px", marginBottom:16 }}>
         <div style={{ marginBottom:12 }}>
@@ -732,7 +795,7 @@ function FlightsScreen({ onTap, onAdd, leaveState, setLeaveState, navIdx, setNav
       </div>
 
       {/* Outbound — always expanded */}
-      <div style={{ fontSize:11, color:C.orange, fontFamily:C.mono, fontWeight:700, letterSpacing:2, marginBottom:12 }}>OUTBOUND · APR 22 · {outbound.length} FLIGHTS</div>
+      <div style={{ fontSize:11, color:C.orange, fontFamily:C.mono, fontWeight:700, letterSpacing:2, marginBottom:12 }}>OUTBOUND · JUN 14 · {outbound.length} FLIGHT</div>
       {renderFlightGroup(outbound, true, ()=>{})}
 
       {/* Return — collapsed by default */}
@@ -793,6 +856,16 @@ function FlightsScreen({ onTap, onAdd, leaveState, setLeaveState, navIdx, setNav
         </div>
       </div>
 
+      {/* ── Trip Extras (collapsible to reduce clutter) ── */}
+      <div onClick={()=>setShowExtras(o=>!o)} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginTop:4, marginBottom:showExtras?12:14, cursor:"pointer", background:C.surface, borderRadius:14, border:`1px solid ${C.border}`, padding:"13px 16px" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+          <span style={{ fontSize:18 }}>🎫</span>
+          <span style={{ fontSize:13, fontWeight:700, color:C.text }}>Check-in & Carbon</span>
+        </div>
+        <span style={{ fontSize:14, color:C.accent }}>{showExtras?"▲":"▼"}</span>
+      </div>
+
+      {showExtras&&<>
       {/* ── Check-in Reminder Card ── */}
       <div style={{ background:"rgba(0,200,240,0.07)", borderRadius:18, border:"1px solid rgba(0,200,240,0.25)", padding:16, marginBottom:14 }}>
         <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12 }}>
@@ -821,7 +894,7 @@ function FlightsScreen({ onTap, onAdd, leaveState, setLeaveState, navIdx, setNav
           <span style={{ fontSize:20 }}>🌱</span>
           <div style={{ flex:1 }}>
             <div style={{ fontSize:13, fontWeight:800, color:C.green }}>Trip Carbon Footprint</div>
-            <div style={{ fontSize:11, color:C.soft }}>Your Peru round trip · 4 flights</div>
+            <div style={{ fontSize:11, color:C.soft }}>Israel family trip · 3 flights · 6 passengers</div>
           </div>
         </div>
         <div style={{ display:"flex", gap:8, marginBottom:10 }}>
@@ -834,14 +907,15 @@ function FlightsScreen({ onTap, onAdd, leaveState, setLeaveState, navIdx, setNav
         </div>
         <div style={{ background:C.surface, borderRadius:11, padding:"10px 14px", border:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
           <div>
-            <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, marginBottom:2 }}>TOTAL TRIP EMISSIONS</div>
-            <div style={{ fontSize:20, fontWeight:800, color:C.green, fontFamily:C.mono }}>802 kg CO₂</div>
+            <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, marginBottom:2 }}>TOTAL · 6 PASSENGERS</div>
+            <div style={{ fontSize:18, fontWeight:800, color:C.green, fontFamily:C.mono }}>11,748 kg CO₂</div>
           </div>
           <div onClick={()=>alert("Opening carbon offset options...\n\nIn the live app this connects to a carbon offset provider like Gold Standard or Terrapass.")} style={{ background:"rgba(0,232,122,0.1)", border:"1px solid rgba(0,232,122,0.3)", borderRadius:10, padding:"8px 12px", cursor:"pointer" }}>
             <div style={{ fontSize:11, fontWeight:700, color:C.green }}>Offset It 🌳</div>
           </div>
         </div>
       </div>
+      </>}
 
       <div onClick={onAdd} style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:8, background:C.surface, borderRadius:14, border:`1px dashed ${C.border}`, padding:"15px 0", cursor:"pointer" }}>
         <span style={{ fontSize:20, color:C.soft }}>+</span>
@@ -1302,6 +1376,34 @@ function CorporateDashboard({ onClose }) {
             </div>
           );
         })}
+        {/* ── Expense Management (Navan-style) ── */}
+        <div style={{ marginTop:16, marginBottom:8 }}>
+          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10 }}>EXPENSE MANAGEMENT</div>
+          <div onClick={()=>alert("Opening camera to capture receipt...\n\nIn the live app: snap a photo → AI reads the merchant, amount, date → auto-categorizes (Meals/Transport/Lodging) → attaches to the right trip. No manual entry.")} style={{ background:"linear-gradient(135deg,rgba(0,200,240,0.1),rgba(0,232,122,0.06))", border:"1px solid rgba(0,200,240,0.25)", borderRadius:14, padding:"14px 16px", marginBottom:10, display:"flex", alignItems:"center", gap:12, cursor:"pointer" }}>
+            <span style={{ fontSize:26 }}>📸</span>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:14, fontWeight:800, color:C.text }}>Snap a Receipt</div>
+              <div style={{ fontSize:11, color:C.soft }}>AI reads & auto-categorizes — no manual entry</div>
+            </div>
+            <span style={{ fontSize:16, color:C.accent }}>→</span>
+          </div>
+          {/* Recent expenses auto-categorized */}
+          {[["🍽️","Lunch — Cafe Madrid","Meals","$42.50","✅ In policy"],["🚕","Airport taxi","Transport","$68.00","✅ In policy"],["🏨","Hotel — 1 night","Lodging","$310.00","⚠️ Over $250 limit"]].map(([icon,name,cat,amt,status],i)=>(
+            <div key={i} style={{ background:C.card, border:`1px solid ${status.includes("⚠️")?"rgba(255,200,0,0.3)":C.border}`, borderRadius:12, padding:"11px 14px", marginBottom:8, display:"flex", alignItems:"center", gap:11 }}>
+              <span style={{ fontSize:20 }}>{icon}</span>
+              <div style={{ flex:1 }}>
+                <div style={{ fontSize:13, fontWeight:700, color:C.text }}>{name}</div>
+                <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono }}>{cat} · {status}</div>
+              </div>
+              <div style={{ fontSize:14, fontWeight:800, color:status.includes("⚠️")?C.yellow:C.text, fontFamily:C.mono }}>{amt}</div>
+            </div>
+          ))}
+          <div style={{ background:C.surface, borderRadius:12, padding:"12px 14px", display:"flex", alignItems:"center", justifyContent:"space-between", border:`1px solid ${C.border}` }}>
+            <div style={{ fontSize:12, color:C.soft }}>Trip total · auto-categorized</div>
+            <div style={{ fontSize:16, fontWeight:800, color:C.accent, fontFamily:C.mono }}>$420.50</div>
+          </div>
+        </div>
+
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginTop:8 }}>
           <div onClick={()=>setShowExport(true)} style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:"16px", textAlign:"center", cursor:"pointer" }}>
             <div style={{ fontSize:24, marginBottom:6 }}>📊</div>
@@ -1319,11 +1421,165 @@ function CorporateDashboard({ onClose }) {
   );
 }
 
+// ── Boarding Pass / Mobile Wallet ──────────────────────────────
+function WalletScreen() {
+  const [active, setActive] = useState(0);
+  const passes = [
+    { id:"p1", airline:"El Al", code:"LY", flight:"LY 018", dep:"MIA", arr:"TLV", date:"Sun Jun 14", time:"2:30 PM", gate:"TBD", seat:"32A", boarding:"1:45 PM", group:"4", name:"SADOK/ASAF", conf:"8ZEH6P", color:"#003399" },
+    { id:"p2", airline:"El Al", code:"LY", flight:"LY 347", dep:"TLV", arr:"ZRH", date:"Thu Jul 2", time:"8:00 AM", gate:"TBD", seat:"18C", boarding:"7:15 AM", group:"3", name:"SADOK/ASAF", conf:"8ZEH6P", color:"#003399" },
+    { id:"p3", airline:"Swiss", code:"LX", flight:"LX 064", dep:"ZRH", arr:"MIA", date:"Thu Jul 2", time:"1:00 PM", gate:"TBD", seat:"24F", boarding:"12:15 PM", group:"2", name:"SADOK/ASAF", conf:"8ZEH6P", color:"#d52b1e" },
+  ];
+  const p = passes[active];
+  return (
+    <div style={{ padding:"14px 14px 100px" }}>
+      <div style={{ fontSize:13, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:12 }}>MOBILE BOARDING PASSES</div>
+
+      {/* Pass selector */}
+      <div style={{ display:"flex", gap:8, marginBottom:16, overflowX:"auto" }}>
+        {passes.map((pass,i)=>(
+          <div key={pass.id} onClick={()=>setActive(i)} style={{ flexShrink:0, background:i===active?C.card:C.surface, border:`1px solid ${i===active?C.accent:C.border}`, borderRadius:10, padding:"8px 12px", cursor:"pointer" }}>
+            <div style={{ fontSize:12, fontWeight:800, color:i===active?C.accent:C.soft, fontFamily:C.mono }}>{pass.flight}</div>
+            <div style={{ fontSize:10, color:C.muted }}>{pass.dep}→{pass.arr}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* The boarding pass */}
+      <div style={{ background:"#fff", borderRadius:20, overflow:"hidden", boxShadow:"0 8px 32px rgba(0,0,0,0.4)" }}>
+        <div style={{ background:p.color, padding:"16px 20px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+          <div style={{ color:"#fff", fontSize:18, fontWeight:800 }}>{p.airline}</div>
+          <div style={{ color:"rgba(255,255,255,0.9)", fontSize:13, fontFamily:C.mono }}>{p.flight}</div>
+        </div>
+        <div style={{ padding:"20px" }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:20 }}>
+            <div style={{ textAlign:"center" }}>
+              <div style={{ fontSize:36, fontWeight:800, color:"#111", fontFamily:C.mono, lineHeight:1 }}>{p.dep}</div>
+              <div style={{ fontSize:12, color:"#888", marginTop:4 }}>{p.time}</div>
+            </div>
+            <div style={{ flex:1, padding:"0 16px", textAlign:"center" }}>
+              <div style={{ fontSize:20 }}>✈️</div>
+              <div style={{ height:2, background:"#ddd", margin:"4px 0" }}/>
+              <div style={{ fontSize:11, color:"#aaa" }}>{p.date}</div>
+            </div>
+            <div style={{ textAlign:"center" }}>
+              <div style={{ fontSize:36, fontWeight:800, color:"#111", fontFamily:C.mono, lineHeight:1 }}>{p.arr}</div>
+              <div style={{ fontSize:12, color:"#888", marginTop:4 }}>Arrival</div>
+            </div>
+          </div>
+          <div style={{ display:"flex", justifyContent:"space-between", padding:"14px 0", borderTop:"1px dashed #ddd", borderBottom:"1px dashed #ddd", marginBottom:16 }}>
+            {[["PASSENGER",p.name],["SEAT",p.seat],["GROUP",p.group]].map(([l,v])=>(
+              <div key={l}><div style={{ fontSize:9, color:"#aaa", fontFamily:C.mono, marginBottom:2 }}>{l}</div><div style={{ fontSize:13, fontWeight:700, color:"#111" }}>{v}</div></div>
+            ))}
+          </div>
+          <div style={{ display:"flex", justifyContent:"space-between", marginBottom:16 }}>
+            {[["GATE",p.gate],["BOARDS",p.boarding],["CONF",p.conf]].map(([l,v])=>(
+              <div key={l}><div style={{ fontSize:9, color:"#aaa", fontFamily:C.mono, marginBottom:2 }}>{l}</div><div style={{ fontSize:13, fontWeight:700, color:"#111", fontFamily:C.mono }}>{v}</div></div>
+            ))}
+          </div>
+          {/* QR / barcode */}
+          <div style={{ background:"#fff", borderRadius:10, padding:"12px", display:"flex", justifyContent:"center" }}>
+            <div style={{ display:"flex", gap:1.5, alignItems:"flex-end", height:60 }}>
+              {Array.from({length:48}).map((_,i)=>(
+                <div key={i} style={{ width:i%4===0?3:2, height:"100%", background:(i*7%3===0||i%5===0)?"#111":"#fff" }}/>
+              ))}
+            </div>
+          </div>
+          <div style={{ textAlign:"center", fontSize:10, color:"#aaa", fontFamily:C.mono, marginTop:8 }}>{p.conf} · {p.flight} · {p.seat}</div>
+        </div>
+      </div>
+
+      {/* Add to wallet buttons */}
+      <div style={{ display:"flex", gap:8, marginTop:16 }}>
+        <div onClick={()=>alert("Adding to Apple Wallet...\n\nIn the live app this saves the pass to your phone's wallet for offline access.")} style={{ flex:1, background:"#000", border:"1px solid #333", borderRadius:12, padding:"13px 0", textAlign:"center", cursor:"pointer" }}>
+          <span style={{ fontSize:13, fontWeight:700, color:"#fff" }}> Apple Wallet</span>
+        </div>
+        <div onClick={()=>alert("Adding to Google Wallet...")} style={{ flex:1, background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:"13px 0", textAlign:"center", cursor:"pointer" }}>
+          <span style={{ fontSize:13, fontWeight:700, color:C.text }}>Google Wallet</span>
+        </div>
+      </div>
+      <div style={{ background:"rgba(0,200,240,0.06)", border:"1px solid rgba(0,200,240,0.2)", borderRadius:12, padding:"12px 14px", marginTop:12, display:"flex", alignItems:"center", gap:10 }}>
+        <span style={{ fontSize:16 }}>🔔</span>
+        <div style={{ fontSize:12, color:C.soft }}>We'll alert you the moment your gate is posted and when boarding starts.</div>
+      </div>
+    </div>
+  );
+}
+
+// ── VIP Lounge Finder ──────────────────────────────────────────
+function LoungeScreen() {
+  const [airport, setAirport] = useState("MIA");
+  const airports = ["MIA","TLV","ZRH"];
+  const data = {
+    MIA:[
+      { name:"American Airlines Admirals Club", terminal:"Concourse D, near D15", access:["Priority Pass ❌","Amex Platinum ❌","AA membership ✅","Day pass $79"], hours:"5:00 AM – 9:00 PM", amenities:["Wi-Fi","Showers","Hot food","Bar"], rating:4.2 },
+      { name:"Amex Centurion Lounge", terminal:"Concourse D, near D12", access:["Amex Platinum ✅","Priority Pass ❌","Day pass ❌"], hours:"5:00 AM – 10:00 PM", amenities:["Premium dining","Craft cocktails","Showers","Spa"], rating:4.7 },
+      { name:"Turkish Airlines Lounge", terminal:"Concourse E", access:["Star Alliance Gold ✅","Priority Pass ✅","Day pass $50"], hours:"6:00 AM – 11:00 PM", amenities:["Wi-Fi","Buffet","Quiet zone"], rating:4.4 },
+    ],
+    TLV:[
+      { name:"El Al King David Lounge", terminal:"Terminal 3, Concourse C", access:["El Al Matmid ✅","Business class ✅","Day pass ❌"], hours:"24 hours", amenities:["Kosher dining","Showers","Prayer room","Wi-Fi"], rating:4.5 },
+      { name:"Dan Lounge", terminal:"Terminal 3, Level 3", access:["Priority Pass ✅","Day pass $45"], hours:"24 hours", amenities:["Buffet","Bar","Shower","Kids area"], rating:4.1 },
+    ],
+    ZRH:[
+      { name:"Swiss Senator Lounge", terminal:"Airside E", access:["Star Alliance Gold ✅","Swiss First/Business ✅","Priority Pass ❌"], hours:"5:30 AM – 10:00 PM", amenities:["Fine dining","Whisky bar","Showers","Terrace"], rating:4.6 },
+      { name:"Aspire Lounge", terminal:"Airside E, Gate E45", access:["Priority Pass ✅","Day pass CHF 55"], hours:"6:00 AM – 9:00 PM", amenities:["Wi-Fi","Snacks","Bar","Quiet area"], rating:4.0 },
+    ],
+  };
+  const lounges = data[airport];
+  return (
+    <div style={{ padding:"14px 14px 100px" }}>
+      <div style={{ fontSize:13, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:12 }}>VIP LOUNGE FINDER</div>
+
+      {/* Airport selector */}
+      <div style={{ display:"flex", gap:8, marginBottom:16 }}>
+        {airports.map(a=>(
+          <div key={a} onClick={()=>setAirport(a)} style={{ flex:1, background:a===airport?`linear-gradient(135deg,${C.accent},#007aaa)`:C.surface, border:`1px solid ${a===airport?C.accent:C.border}`, borderRadius:12, padding:"12px 0", textAlign:"center", cursor:"pointer" }}>
+            <div style={{ fontSize:18, fontWeight:800, color:a===airport?"#000":C.text, fontFamily:C.mono }}>{a}</div>
+            <div style={{ fontSize:9, color:a===airport?"#003355":C.muted }}>{a==="MIA"?"Miami":a==="TLV"?"Tel Aviv":"Zurich"}</div>
+          </div>
+        ))}
+      </div>
+
+      {lounges.map((l,i)=>(
+        <div key={i} style={{ background:C.card, borderRadius:18, border:`1px solid ${C.border}`, padding:16, marginBottom:12, animation:"cardIn 0.4s ease" }}>
+          <div style={{ display:"flex", alignItems:"flex-start", gap:10, marginBottom:12 }}>
+            <span style={{ fontSize:24 }}>🛋️</span>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:15, fontWeight:800, color:C.text, marginBottom:2 }}>{l.name}</div>
+              <div style={{ fontSize:11, color:C.soft }}>📍 {l.terminal}</div>
+            </div>
+            <div style={{ background:"rgba(0,232,122,0.1)", border:"1px solid rgba(0,232,122,0.25)", borderRadius:8, padding:"3px 8px", display:"flex", alignItems:"center", gap:3 }}>
+              <span style={{ fontSize:10 }}>⭐</span><span style={{ fontSize:11, color:C.green, fontWeight:700, fontFamily:C.mono }}>{l.rating}</span>
+            </div>
+          </div>
+          <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:1, marginBottom:6 }}>ACCESS</div>
+          <div style={{ display:"flex", flexWrap:"wrap", gap:5, marginBottom:12 }}>
+            {l.access.map((a,j)=>(
+              <span key={j} style={{ background:a.includes("✅")?"rgba(0,232,122,0.08)":C.surface, border:`1px solid ${a.includes("✅")?"rgba(0,232,122,0.25)":C.border}`, borderRadius:7, padding:"4px 9px", fontSize:11, color:a.includes("✅")?C.green:C.soft }}>{a}</span>
+            ))}
+          </div>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", paddingTop:10, borderTop:`1px solid ${C.border}` }}>
+            <div style={{ fontSize:11, color:C.soft }}>🕐 {l.hours}</div>
+            <div style={{ display:"flex", gap:5 }}>
+              {l.amenities.slice(0,3).map((a,k)=>(
+                <span key={k} style={{ fontSize:10, color:C.muted }}>{a}{k<2?" ·":""}</span>
+              ))}
+            </div>
+          </div>
+        </div>
+      ))}
+      <div style={{ background:"rgba(167,139,250,0.06)", border:"1px solid rgba(167,139,250,0.2)", borderRadius:12, padding:"12px 14px", display:"flex", alignItems:"center", gap:10 }}>
+        <span style={{ fontSize:16 }}>💎</span>
+        <div style={{ fontSize:12, color:C.soft }}>Pro members get one-tap day-pass booking and real-time lounge crowding levels.</div>
+      </div>
+    </div>
+  );
+}
+
 function BottomNav({ active, onNav }) {
   const tabs = [
     { id:"flights", icon:"✈️", label:"Flights" },
-    { id:"weather", icon:"🌤️", label:"Weather" },
-    { id:"family", icon:"👨‍👩‍👧", label:"Family" },
+    { id:"wallet", icon:"🎫", label:"Wallet" },
+    { id:"lounges", icon:"🛋️", label:"Lounges" },
     { id:"passport", icon:"📊", label:"Passport" },
     { id:"plans", icon:"⭐", label:"Plans" },
   ];
@@ -1342,6 +1598,42 @@ function BottomNav({ active, onNav }) {
   );
 }
 
+function Onboarding({ onDone }) {
+  const [step, setStep] = useState(0);
+  const slides = [
+    { icon:"🛡️", title:"Never miss a change", body:"We check your flights every 15 minutes across 3 data sources and alert you the instant anything changes — often before the airline does." },
+    { icon:"🔄", title:"Know before you go", body:"We track the incoming aircraft that becomes your flight, so you get the earliest possible warning if a delay is coming your way." },
+    { icon:"🚗", title:"Leave at the right time", body:"My Runway calculates exactly when to leave home based on live traffic, your airport, and your flight — no more guessing." },
+    { icon:"🔗", title:"Share with anyone", body:"Send a live tracking link to whoever's picking you up. They see your flight in real time — no app needed." },
+  ];
+  const s = slides[step];
+  const last = step === slides.length - 1;
+  return (
+    <div style={{ position:"fixed", inset:0, background:C.bg, zIndex:90, display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto" }}>
+      <div style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"32px", textAlign:"center" }}>
+        <div style={{ fontFamily:C.display, fontSize:26, color:C.accent, letterSpacing:5, marginBottom:48 }}>MY RUNWAY</div>
+        <div style={{ width:120, height:120, borderRadius:60, background:"rgba(0,200,240,0.08)", border:"1px solid rgba(0,200,240,0.2)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:56, marginBottom:36, animation:"fadeUp 0.4s ease" }}>{s.icon}</div>
+        <div key={step} style={{ animation:"fadeUp 0.4s ease" }}>
+          <div style={{ fontSize:24, fontWeight:800, color:C.text, marginBottom:14 }}>{s.title}</div>
+          <div style={{ fontSize:15, color:C.soft, lineHeight:1.6, maxWidth:320, margin:"0 auto" }}>{s.body}</div>
+        </div>
+      </div>
+      <div style={{ padding:"0 32px 40px" }}>
+        <div style={{ display:"flex", gap:6, justifyContent:"center", marginBottom:28 }}>
+          {slides.map((_,i)=>(
+            <div key={i} style={{ width:i===step?24:8, height:8, borderRadius:4, background:i===step?C.accent:C.border, transition:"all 0.3s" }}/>
+          ))}
+        </div>
+        <div onClick={()=>last?onDone():setStep(step+1)} style={{ background:`linear-gradient(135deg,${C.accent},#007aaa)`, borderRadius:14, padding:"16px 0", textAlign:"center", fontWeight:800, fontSize:16, color:"#000", cursor:"pointer" }}>
+          {last?"Get Started ✈":"Next"}
+        </div>
+        {!last&&<div onClick={onDone} style={{ textAlign:"center", marginTop:16, fontSize:14, color:C.muted, cursor:"pointer" }}>Skip</div>}
+      </div>
+      <style>{`@keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}`}</style>
+    </div>
+  );
+}
+
 export default function MyRunway() {
   const [tab, setTab] = useState("flights");
   const [showAdd, setShowAdd] = useState(false);
@@ -1356,6 +1648,9 @@ export default function MyRunway() {
   const [tick, setTick] = useState(0);
   const [isDark, setIsDark] = useState(true);
   const [homeAddress, setHomeAddress] = useState("Miami, FL (Davie)");
+  const [showOnboarding, setShowOnboarding] = useState(true);
+  const [showWeather, setShowWeather] = useState(false);
+  const [showFamily, setShowFamily] = useState(false);
 
   C = isDark ? DARK : LIGHT;
 
@@ -1363,7 +1658,7 @@ export default function MyRunway() {
 
   return (
     <div style={{ background:C.bg, minHeight:"100vh", display:"flex", flexDirection:"column", fontFamily:C.sans, maxWidth:480, margin:"0 auto", position:"relative" }}>
-      <style>{`::-webkit-scrollbar{display:none} *{box-sizing:border-box}`}</style>
+      <style>{`::-webkit-scrollbar{display:none} *{box-sizing:border-box} @keyframes cardIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}} @keyframes slideDown{from{opacity:0;max-height:0}to{opacity:1;max-height:2000px}}`}</style>
       <div style={{ background:isDark?"rgba(4,7,14,0.98)":"rgba(240,244,248,0.98)", borderBottom:`1px solid ${C.border}`, padding:"12px 16px", display:"flex", alignItems:"center", justifyContent:"space-between", position:"sticky", top:0, zIndex:10 }}>
         <div style={{ display:"flex", alignItems:"center", gap:9 }}>
           <div style={{ width:10, height:10, borderRadius:5, background:C.orange, boxShadow:tick%2===0?`0 0 14px ${C.orange}`:"none", transition:"box-shadow 1.5s" }}/>
@@ -1385,6 +1680,12 @@ export default function MyRunway() {
           <div onClick={()=>setShowShare(true)} style={{ background:"rgba(0,200,240,0.07)", border:"1px solid rgba(0,200,240,0.15)", borderRadius:9, padding:"7px 10px", cursor:"pointer", display:"flex", alignItems:"center", gap:3 }}>
             <span style={{ fontSize:13 }}>🔗</span>
           </div>
+          <div onClick={()=>setShowWeather(true)} style={{ background:"rgba(255,255,255,0.05)", border:`1px solid ${C.border}`, borderRadius:9, padding:"7px 10px", cursor:"pointer" }}>
+            <span style={{ fontSize:13 }}>🌤️</span>
+          </div>
+          <div onClick={()=>setShowFamily(true)} style={{ background:"rgba(255,255,255,0.05)", border:`1px solid ${C.border}`, borderRadius:9, padding:"7px 10px", cursor:"pointer" }}>
+            <span style={{ fontSize:13 }}>👨‍👩‍👧</span>
+          </div>
           <div onClick={()=>setShowCancellations(true)} style={{ background:"rgba(255,58,84,0.1)", border:"1px solid rgba(255,58,84,0.3)", borderRadius:9, padding:"7px 10px", cursor:"pointer", position:"relative" }}>
             <span style={{ fontSize:13 }}>🚨</span>
             <div style={{ position:"absolute", top:-3, right:-3, width:8, height:8, borderRadius:4, background:C.red, border:"1.5px solid #04070e" }}/>
@@ -1393,16 +1694,16 @@ export default function MyRunway() {
       </div>
       <div style={{ padding:"16px 16px 0" }}>
         <div style={{ fontSize:22, fontWeight:800, color:C.text, marginBottom:3 }}>
-          {tab==="flights"?"My Flights":tab==="weather"?"Airport Weather":tab==="family"?"Family Tracker":tab==="plans"?"Plans & Pricing":"My Passport"}
+          {tab==="flights"?"My Flights":tab==="wallet"?"Boarding Passes":tab==="lounges"?"Airport Lounges":tab==="plans"?"Plans & Pricing":"My Passport"}
         </div>
         <div style={{ fontSize:13, color:C.soft }}>
-          {tab==="flights"?"Israel family trip · Jun 14 – Jul 2, 2026":tab==="weather"?"Conditions at every stop":tab==="family"?"Everyone's flights in one place":tab==="plans"?"Choose the right plan":"Your lifetime flying history"}
+          {tab==="flights"?"Israel family trip · Jun 14 – Jul 2, 2026":tab==="wallet"?"Hold your passes — works offline":tab==="lounges"?"Find lounges & access rules":tab==="plans"?"Choose the right plan":"Your lifetime flying history"}
         </div>
       </div>
       <div style={{ flex:1 }}>
         {tab==="flights"&&<FlightsScreen onTap={f=>alert(`${f.iata}\n${f.dep} → ${f.arr}\nStatus: ${f.status}\nGate: ${f.gate} · Terminal: ${f.terminal}\nConf#: ${f.conf}\n${f.date}`)} onAdd={()=>setShowAdd(true)} leaveState={leaveState} setLeaveState={setLeaveState} navIdx={navIdx} setNavIdx={setNavIdx} homeAddress={homeAddress}/>}
-        {tab==="weather"&&<WeatherScreen/>}
-        {tab==="family"&&<FamilyScreen/>}
+        {tab==="wallet"&&<WalletScreen/>}
+        {tab==="lounges"&&<LoungeScreen/>}
         {tab==="passport"&&<PassportScreen/>}
         {tab==="plans"&&<PlansScreen/>}
       </div>
@@ -1413,6 +1714,25 @@ export default function MyRunway() {
       {showShare&&<ShareModal onClose={()=>setShowShare(false)}/>}
       {showSettings&&<SettingsModal onClose={()=>setShowSettings(false)} isDark={isDark} setIsDark={setIsDark} homeAddress={homeAddress} setHomeAddress={setHomeAddress}/>}
       {showCorp&&<CorporateDashboard onClose={()=>setShowCorp(false)}/>}
+      {showOnboarding&&<Onboarding onDone={()=>setShowOnboarding(false)}/>}
+      {showWeather&&(
+        <div style={{ position:"fixed", inset:0, background:C.bg, zIndex:50, overflowY:"auto" }}>
+          <div style={{ background:"rgba(4,7,14,0.98)", borderBottom:`1px solid ${C.border}`, padding:"14px 16px", display:"flex", alignItems:"center", gap:10, position:"sticky", top:0 }}>
+            <div onClick={()=>setShowWeather(false)} style={{ width:34, height:34, borderRadius:17, background:C.surface, border:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", fontSize:18, color:C.accent }}>←</div>
+            <div style={{ fontSize:16, fontWeight:800, color:C.text }}>Airport Weather</div>
+          </div>
+          <WeatherScreen/>
+        </div>
+      )}
+      {showFamily&&(
+        <div style={{ position:"fixed", inset:0, background:C.bg, zIndex:50, overflowY:"auto" }}>
+          <div style={{ background:"rgba(4,7,14,0.98)", borderBottom:`1px solid ${C.border}`, padding:"14px 16px", display:"flex", alignItems:"center", gap:10, position:"sticky", top:0 }}>
+            <div onClick={()=>setShowFamily(false)} style={{ width:34, height:34, borderRadius:17, background:C.surface, border:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", fontSize:18, color:C.accent }}>←</div>
+            <div style={{ fontSize:16, fontWeight:800, color:C.text }}>Family Tracker</div>
+          </div>
+          <FamilyScreen/>
+        </div>
+      )}
     </div>
   );
 }
