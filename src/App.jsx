@@ -745,53 +745,14 @@ function FlightsScreen({ onTap, onAdd, leaveState, setLeaveState, navIdx, setNav
 
   return (
     <div style={{ padding:"14px 14px 100px" }}>
-      {/* ── HERO: Live Monitoring Banner (our superpower) ── */}
-      <div style={{ background:"linear-gradient(135deg,rgba(0,232,122,0.1),rgba(0,200,240,0.06))", borderRadius:18, border:"1px solid rgba(0,232,122,0.3)", padding:"16px", marginBottom:16, position:"relative", overflow:"hidden" }}>
-        <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-          <div style={{ position:"relative", width:44, height:44, flexShrink:0 }}>
-            <div style={{ position:"absolute", inset:0, borderRadius:22, background:"rgba(0,232,122,0.15)", animation:"pulse 2s infinite" }}/>
-            <div style={{ position:"absolute", inset:0, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22 }}>🛡️</div>
-          </div>
-          <div style={{ flex:1 }}>
-            <div style={{ fontSize:15, fontWeight:800, color:C.green, marginBottom:2 }}>All flights protected</div>
-            <div style={{ fontSize:12, color:C.soft, lineHeight:1.4 }}>Checking every 15 min across 3 sources. We alert you before the airline does.</div>
-          </div>
+      {/* ── Slim protection banner ── */}
+      <div style={{ display:"flex", alignItems:"center", gap:9, background:"rgba(0,232,122,0.07)", borderRadius:12, border:"1px solid rgba(0,232,122,0.22)", padding:"10px 14px", marginBottom:14 }}>
+        <div style={{ position:"relative", width:10, height:10, flexShrink:0 }}>
+          <div style={{ position:"absolute", inset:0, borderRadius:5, background:C.green, animation:"pulse 2s infinite" }}/>
         </div>
-        <style>{`@keyframes pulse{0%{transform:scale(1);opacity:1}50%{transform:scale(1.15);opacity:0.5}100%{transform:scale(1);opacity:1}}`}</style>
-      </div>
-
-      {/* Route summary */}
-      <div style={{ background:C.card, borderRadius:16, border:`1px solid ${C.border}`, padding:"14px", marginBottom:16 }}>
-        <div style={{ marginBottom:12 }}>
-          <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, fontWeight:700, letterSpacing:1.5, marginBottom:8 }}>OUTBOUND · JUN 14</div>
-          <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-            {outbound.map(f=>{ const s=sc(f.status); return (
-              <div key={f.id} onClick={()=>onTap(f)} style={{ background:`${s.c}22`, border:`1.5px solid ${s.c}`, borderRadius:20, padding:"7px 16px", cursor:"pointer", display:"flex", alignItems:"center", gap:8 }}>
-                <div style={{ width:7, height:7, borderRadius:4, background:s.c, flexShrink:0 }}/>
-                <span style={{ fontSize:12, color:s.c, fontFamily:C.mono, fontWeight:800 }}>{f.iata} · {f.dep}–{f.arr}</span>
-              </div>
-            );})}
-          </div>
-        </div>
-        <div style={{ borderTop:`1px solid ${C.border}`, paddingTop:12 }}>
-          <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, fontWeight:700, letterSpacing:1.5, marginBottom:8 }}>RETURN · JUL 2</div>
-          <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-            {returnFlights.map(f=>{ const s=sc(f.status); return (
-              <div key={f.id} onClick={()=>onTap(f)} style={{ background:`${s.c}22`, border:`1.5px solid ${s.c}`, borderRadius:20, padding:"7px 16px", cursor:"pointer", display:"flex", alignItems:"center", gap:8 }}>
-                <div style={{ width:7, height:7, borderRadius:4, background:s.c, flexShrink:0 }}/>
-                <span style={{ fontSize:12, color:s.c, fontFamily:C.mono, fontWeight:800 }}>{f.iata} · {f.dep}–{f.arr}</span>
-              </div>
-            );})}
-          </div>
-        </div>
-        <div style={{ display:"flex", gap:12, marginTop:12, paddingTop:12, borderTop:`1px solid ${C.border}`, flexWrap:"wrap" }}>
-          {[["#00e87a","On Time"],["#ffc800","Delayed"],["#a78bfa","Gate Change"],["#ff3a54","Cancelled"]].map(([c,l])=>(
-            <div key={l} style={{ display:"flex", alignItems:"center", gap:5 }}>
-              <div style={{ width:8, height:8, borderRadius:4, background:c }}/>
-              <span style={{ fontSize:10, color:C.muted, fontFamily:C.mono }}>{l}</span>
-            </div>
-          ))}
-        </div>
+        <span style={{ fontSize:12, fontWeight:700, color:C.green }}>All flights protected</span>
+        <span style={{ fontSize:11, color:C.soft }}>· checking every 15 min</span>
+        <style>{`@keyframes pulse{0%{transform:scale(1);opacity:1}50%{transform:scale(1.6);opacity:0.4}100%{transform:scale(1);opacity:1}}`}</style>
       </div>
 
       {/* Outbound — always expanded */}
