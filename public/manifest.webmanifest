@@ -1,0 +1,17 @@
+{
+  "name": "MyRunway — Know Before You Go",
+  "short_name": "MyRunway",
+  "description": "Flight alerts before the airline. Door-to-gate timing. Zero guesswork.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#04070e",
+  "theme_color": "#04070e",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
