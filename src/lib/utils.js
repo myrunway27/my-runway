@@ -27,11 +27,11 @@ export function healthInfo(score) {
 
 // ── Demo clock ────────────────────────────────────────────────
 // The demo runs on a virtual clock counted in minutes from DEMO_START
-// (4:00 AM, Wed Sep 2, 2026 — departure morning of the TLV→ZRH→MIA trip).
+// (2:00 AM, Wed Sep 2, 2026 — departure morning of the TLV→ZRH→MIA trip).
 // Flight times in seed data are offsets (depMin/arrMin) from this origin.
 // Note: offsets drive the sim only; displayed times (depTime/arrTime strings)
 // come from the booking — the booking is the source of truth.
-export const DEMO_ORIGIN_ABS = 4 * 60; // 4:00 AM in minutes-of-day
+export const DEMO_ORIGIN_ABS = 2 * 60; // 2:00 AM in minutes-of-day
 export const DEMO_DAY0 = 2; // September 2, 2026
 
 // Format a demo-minute offset as a wall-clock string, e.g. 321 -> "3:51 PM".
@@ -78,4 +78,34 @@ export function project(lat, lon, bounds, w, h, pad = 30) {
   const x = pad + ((lon - bounds.minLon) / (bounds.maxLon - bounds.minLon)) * (w - pad * 2);
   const y = pad + ((bounds.maxLat - lat) / (bounds.maxLat - bounds.minLat)) * (h - pad * 2);
   return { x, y };
+}
+
+// ── Booking-time helpers ──────────────────────────────────────
+// The demo clock is one linear timeline, so it cannot express the
+// timezone jumps on a TLV→ZRH→MIA itinerary. For anything a traveller
+// reads as a local time at the destination, anchor on the booking
+// string instead of the clock (the booking is the source of truth).
+
+// "6:10 PM" → 1090 (minutes-of-day). Returns null if unparseable.
+export function parseClock(str) {
+  if (typeof str !== "string") return null;
+  const m = str.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+  if (!m) return null;
+  let h = parseInt(m[1], 10);
+  const min = parseInt(m[2], 10);
+  if (h > 23 || min > 59) return null;
+  const ap = m[3] && m[3].toUpperCase();
+  if (ap === "PM" && h < 12) h += 12;
+  if (ap === "AM" && h === 12) h = 0;
+  return h * 60 + min;
+}
+
+// 1090 → "6:10 PM" (wraps past midnight).
+export function fmtTimeOfDay(mins) {
+  const mod = ((Math.round(mins) % 1440) + 1440) % 1440;
+  let h = Math.floor(mod / 60);
+  const m = mod % 60;
+  const ap = h >= 12 ? "PM" : "AM";
+  h = h % 12; if (h === 0) h = 12;
+  return `${h}:${String(m).padStart(2, "0")} ${ap}`;
 }

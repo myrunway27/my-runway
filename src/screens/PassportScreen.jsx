@@ -50,10 +50,16 @@ export default function PassportScreen({ onOpenPlans }) {
         <div style={{ fontSize: 10, color: C.muted, fontFamily: C.mono, letterSpacing: 2, marginBottom: 12 }}>ACHIEVEMENTS</div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
           {p.badges.map((b) => (
-            <div key={b} style={{ background: "rgba(167,139,250,0.1)", border: "1px solid rgba(167,139,250,0.25)", borderRadius: 20, padding: "7px 14px", fontSize: 13, color: C.purple, fontWeight: 600 }}>{b}</div>
+            <div key={b.label} style={{ background: "rgba(167,139,250,0.1)", border: "1px solid rgba(167,139,250,0.25)", borderRadius: 20, padding: "7px 14px", fontSize: 13, color: C.purple, fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+              <Icon name={b.icon} size={14} color={C.purple} />
+              {b.label}
+            </div>
           ))}
           {p.lockedBadges.map((b) => (
-            <div key={b} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 20, padding: "7px 14px", fontSize: 13, color: C.muted, opacity: 0.5, display: "flex", alignItems: "center", gap: 5 }}><Icon name="lock" size={13} color={C.muted} />{b.split(" ").slice(1).join(" ")}</div>
+            <div key={b.label} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 20, padding: "7px 14px", fontSize: 13, color: C.muted, opacity: 0.5, display: "flex", alignItems: "center", gap: 5 }}>
+              <Icon name="lock" size={13} color={C.muted} />
+              {b.label}
+            </div>
           ))}
         </div>
       </div>

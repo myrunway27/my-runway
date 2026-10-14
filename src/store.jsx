@@ -62,7 +62,7 @@ function initState() {
     family: [...FAMILY_SEED, ...(p.customFamily || [])],
     employees: EMPLOYEES,
     notifications: [
-      { id: "n-seed-1", icon: "wave", kind: "info", title: "Welcome to MyRunway", body: "Tracking your Tel Aviv → Miami trip. We'll alert you before the airline does.", time: "4:00 AM", read: false },
+      { id: "n-seed-1", icon: "wave", kind: "info", title: "Welcome to MyRunway", body: "Tracking your Tel Aviv → Miami trip. We'll alert you before the airline does.", time: "2:00 AM", read: false },
     ],
     settings: {
       isDark: true,
@@ -95,7 +95,7 @@ function reducer(state, action) {
       const id = `uf-${Date.now()}`;
       const code = num.trim().split(/\s+/)[0].slice(0, 2).toUpperCase();
       const f = {
-        id, custom: true, iata: num.toUpperCase(), code, airline: "Tracked flight",
+        id, custom: true, source: "lookup", iata: num.toUpperCase(), code, airline: "Tracked flight",
         dep: "???", arr: "???", depMin: state.now + 600, arrMin: state.now + 780,
         depTime: "TBD", arrTime: "TBD", status: "Scheduled", progress: 0,
         gate: "TBD", terminal: "TBD", aircraft: "TBD", seat: "—",

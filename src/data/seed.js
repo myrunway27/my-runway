@@ -104,7 +104,7 @@ export const AIRPORTS = {
 export const FLIGHTS_SEED = [
   {
     id: "f1", iata: "LY 347", code: "LY", airline: "El Al",
-    dep: "TLV", arr: "ZRH", depMin: 240, arrMin: 425, depTime: "8:00 AM", arrTime: "11:05 AM",
+    dep: "TLV", arr: "ZRH", depMin: 360, arrMin: 545, depTime: "8:00 AM", arrTime: "11:05 AM",
     status: "Scheduled", progress: 0, gate: "TBD", terminal: "3",
     aircraft: "Boeing 787-9", tail: "4X-EDA", seat: "22C",
     date: "Wed Sep 2, 2026", conf: "ELAL7Q", trip: "outbound", source: "booking",
@@ -131,7 +131,7 @@ export const FLIGHTS_SEED = [
   },
   {
     id: "f2", iata: "LX 64", code: "LX", airline: "SWISS",
-    dep: "ZRH", arr: "MIA", depMin: 580, arrMin: 1210, depTime: "1:40 PM", arrTime: "6:10 PM",
+    dep: "ZRH", arr: "MIA", depMin: 700, arrMin: 1330, depTime: "1:40 PM", arrTime: "6:10 PM",
     status: "Scheduled", progress: 0, gate: "TBD", terminal: "E",
     aircraft: "Airbus A340-300", tail: "HB-JMK", seat: "38H",
     date: "Wed Sep 2, 2026", conf: "SWQ4RZ", trip: "outbound", source: "booking",

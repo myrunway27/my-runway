@@ -23,7 +23,7 @@ export const SCRIPT = [
   { at: 26, type: "risk", kind: "delay", flightId: "f2", score: 34, addReason: { icon: "wind", label: "Föhn wind watch at ZRH", detail: "Afternoon gusts possible — arrivals may slow" }, icon: "trendUp", title: "Delay risk rising — LX 64", body: "Risk now MODERATE. Föhn winds may gust at Zurich this afternoon. We'll watch it for you." },
   { at: 33, type: "gate", kind: "gate", flightId: "f2", gate: "E24", icon: "door", title: "Gate assigned — LX 64", body: "Departs from Gate E24, Terminal E. Skymetro ride from arrivals is ~10 min." },
   { at: 42, type: "family", kind: "info", personId: "p3", status: "In Air", progress: 30, icon: "planeUp", title: "Sarah is in the air", body: "BA 178 departed London. ETA 8:00 PM into JFK." },
-  { at: 55, type: "status", kind: "info", flightId: "f1", status: "Boarding", icon: "ticket", title: "LY 347 now boarding", body: "Boarding at Gate B7 — Zone C / GROUP 3, Seat 22C." },
+  { at: 80, type: "status", kind: "info", flightId: "f1", status: "Boarding", icon: "ticket", title: "LY 347 now boarding", body: "Boarding at Gate B7 — Zone C / GROUP 3, Seat 22C." },
   { at: 70, type: "family", kind: "cancel", personId: "p3", status: "Cancelled", eta: "—", progress: 0, icon: "siren", title: "Sarah's flight was cancelled", body: "BA 178 LHR→JFK cancelled by the airline. Help her rebook from the Family tab." },
 ];
 

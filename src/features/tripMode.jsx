@@ -7,7 +7,14 @@ import { useApp } from "../store.jsx";
 import { Icon } from "../components/icons.jsx";
 import { FullScreen } from "../components/ui.jsx";
 import { SourceChip } from "./dataSource.jsx";
-import { fmtClock, fmtDur, computeLeave, DRIVE_MIN, TRAFFIC_MIN } from "../lib/utils.js";
+import { fmtClock, fmtDur, computeLeave, parseClock, fmtTimeOfDay, DRIVE_MIN, TRAFFIC_MIN } from "../lib/utils.js";
+
+// Arrival-side stages are labelled in destination local time, derived from
+// the booking arrival rather than the linear demo clock.
+function bookingArrivalLabels(f) {
+  const tod = parseClock(f.arrTime);
+  return tod == null ? null : { start: f.arrTime, end: fmtTimeOfDay(tod + 30) };
+}
 
 export default function TripMode({ onClose }) {
   const { flights, now, settings, airports } = useApp();
@@ -53,8 +60,10 @@ export default function TripMode({ onClose }) {
 
   const stages = [];
   let cursor = leave.leaveAtMin - 10;
-  const push = (title, icon, end, sub) => {
-    stages.push({ title, icon, end, sub, start: cursor });
+  // labels (optional): { start, end } booking-time strings that override the
+  // linear demo clock — required wherever the itinerary crosses timezones.
+  const push = (title, icon, end, sub, labels) => {
+    stages.push({ title, icon, end, sub, start: cursor, startLabel: labels && labels.start, endLabel: labels && labels.end });
     cursor = end;
   };
 
@@ -63,14 +72,14 @@ export default function TripMode({ onClose }) {
   push("Check-in & security", "security", f1.depMin - 60, sec ? `${sec.checkpoint} · ~${sec.wait} min wait` : "Check-in & security screening");
   push("Walk to gate", "walk", f1.depMin - 35, `Gate ${f1.gate}`);
   push("Boarding", "ticket", f1.depMin, f1.pass ? `${f1.pass.group} · Seat ${f1.seat}` : `Seat ${f1.seat}`);
-  push(`Fly to ${f1.arr}`, "plane", f1.arrMin, `${f1.iata} · ${f1.depTime} → ${f1.arrTime}`);
+  push(`Fly to ${f1.arr}`, "plane", f1.arrMin, `${f1.iata} · ${f1.depTime} → ${f1.arrTime}`, { start: f1.depTime, end: f1.arrTime });
   if (f2) {
-    push(`Transit at ${f2.dep}`, "walk", f2.depMin - 30, f2.conn ? `${f2.conn.walkMins} min walk · ${f2.conn.security}` : "Transfer to your connecting gate");
-    push(`Boarding ${f2.iata}`, "ticket", f2.depMin, `Gate ${f2.gate} · Seat ${f2.seat}`);
-    push(`Fly home to ${f2.arr}`, "planeDown", f2.arrMin, `${f2.iata} · ${f2.depTime} → ${f2.arrTime}`);
-    push("Landed — welcome home", "check", f2.arrMin + 30, "Baggage claim & arrivals");
+    push(`Transit at ${f2.dep}`, "walk", f2.depMin - 30, f2.conn ? `${f2.conn.walkMins} min walk · ${f2.conn.security}` : "Transfer to your connecting gate", { start: f1.arrTime });
+    push(`Boarding ${f2.iata}`, "ticket", f2.depMin, `Gate ${f2.gate} · Seat ${f2.seat}`, { end: f2.depTime });
+    push(`Fly home to ${f2.arr}`, "planeDown", f2.arrMin, `${f2.iata} · ${f2.depTime} → ${f2.arrTime}`, { start: f2.depTime, end: f2.arrTime });
+    push("Landed — welcome home", "check", f2.arrMin + 30, `Baggage claim & arrivals · ${f2.arr} local time`, bookingArrivalLabels(f2));
   } else {
-    push(`Landed at ${f1.arr}`, "check", f1.arrMin + 30, "Baggage claim & arrivals");
+    push(`Landed at ${f1.arr}`, "check", f1.arrMin + 30, `Baggage claim & arrivals · ${f1.arr} local time`, bookingArrivalLabels(f1));
   }
 
   const activeIdx = stages.findIndex((s) => now < s.end);
@@ -99,7 +108,7 @@ export default function TripMode({ onClose }) {
         )}
         {next && (
           <div style={{ fontSize: 12, color: C.soft, marginTop: 10 }}>
-            Next: <b style={{ color: C.text }}>{next.title}</b> · <span style={{ fontFamily: C.mono }}>{fmtClock(next.start)}</span>
+            Next: <b style={{ color: C.text }}>{next.title}</b> · <span style={{ fontFamily: C.mono }}>{next.startLabel || fmtClock(next.start)}</span>
           </div>
         )}
       </div>
@@ -141,7 +150,7 @@ export default function TripMode({ onClose }) {
                     )}
                   </div>
                   {s.sub && <div style={{ fontSize: 12, color: done ? C.muted : C.soft, marginTop: 2, lineHeight: 1.45 }}>{s.sub}</div>}
-                  <div style={{ fontSize: 11, fontFamily: C.mono, color: C.muted, marginTop: 3 }}>{fmtClock(s.start)}–{fmtClock(s.end)}</div>
+                  <div style={{ fontSize: 11, fontFamily: C.mono, color: C.muted, marginTop: 3 }}>{s.startLabel || fmtClock(s.start)}–{s.endLabel || fmtClock(s.end)}</div>
                 </div>
               </div>
             </div>
