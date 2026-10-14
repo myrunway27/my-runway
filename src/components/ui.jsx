@@ -19,7 +19,7 @@ export function Arc({ progress = 0, color = "#00c8f0" }) {
   const px = progress === 0 ? cx : 16 + pct * (w - 32);
   const py = progress === 0 ? h - 28 : h - 10 - Math.sin(pct * Math.PI) * 24;
   return (
-    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} style={{ overflow: "visible", display: "block", margin: "0 auto" }}>
+    <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="xMidYMid meet" style={{ overflow: "visible", display: "block", margin: "0 auto", maxWidth: w }}>
       <path d={`M 16 ${h - 8} Q ${cx} ${h - 50} ${w - 16} ${h - 8}`} fill="none" stroke={C.isDark ? "#2a4060" : C.border} strokeWidth="1.5" strokeDasharray="4 5" />
       <circle cx="16" cy={h - 8} r="4" fill={C.card} stroke={color} strokeWidth="2" />
       <circle cx={w - 16} cy={h - 8} r="4" fill={C.card} stroke={color} strokeWidth="2" />

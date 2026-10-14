@@ -41,7 +41,7 @@ export default function FlightCard({ f, onTap }) {
           <div style={{ fontSize: 30, fontWeight: 800, color: C.text, fontFamily: C.mono, lineHeight: 1 }}>{f.dep}</div>
           <div style={{ fontSize: 13, color: timeColor, fontWeight: 600, marginTop: 4 }}>{f.depTime}</div>
         </div>
-        <div style={{ flex: 1, display: "flex", justifyContent: "center" }}>
+        <div style={{ flex: 1, minWidth: 0, display: "flex", justifyContent: "center" }}>
           <Arc progress={f.progress} color={s.c} />
         </div>
         <div style={{ textAlign: "center", minWidth: 60 }}>

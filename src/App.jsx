@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { C, applyTheme } from "./theme.js";
 import { AppProvider, useApp } from "./store.jsx";
 import { Icon } from "./components/icons.jsx";
@@ -48,6 +48,20 @@ input::placeholder{color:var(--mr-muted)}
 .mr-pulse{animation:mrPulse 2s ease infinite}
 `;
 
+// Viewport width, so the header can stay inside a phone screen. Without this the
+// full logo lockup plus five controls need ~500px; on a 390px phone that widened
+// the layout viewport and pushed the fixed BottomNav's last tab off-screen.
+function useViewportWidth() {
+  const [w, setW] = useState(() => (typeof window === "undefined" ? 480 : window.innerWidth));
+  useEffect(() => {
+    const onResize = () => setW(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    onResize();
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  return w;
+}
+
 function BottomNav({ active, onNav }) {
   return (
     <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: C.headerBg, borderTop: `1px solid ${C.border}`, zIndex: 20 }}>
@@ -68,6 +82,12 @@ function Shell() {
   const app = useApp();
   const { settings, notifications, unread, flights } = app;
   applyTheme(settings.isDark);
+
+  const vw = useViewportWidth();
+  // Header size tiers, measured against what the row actually needs:
+  // full lockup + "Add" label ≈ 469px, compact ≈ 382px, mark-only ≈ 260px.
+  const narrow = vw < 470;        // drop the tagline and the "Add" label
+  const markOnly = vw < 390;      // drop the wordmark too (SE, most Androids)
 
   const [tab, setTab] = useState("flights");
   const [showAdd, setShowAdd] = useState(false);
@@ -94,7 +114,7 @@ function Shell() {
   // Bell stays neutral; it only goes red for a real unread cancellation.
   const hasCancel = notifications.some((n) => n.kind === "cancel" && !n.read);
 
-  const iconBtn = { background: settings.isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)", border: `1px solid ${C.border}`, borderRadius: 10, padding: "8px 10px", cursor: "pointer", display: "flex", alignItems: "center", position: "relative", transition: "background .15s ease" };
+  const iconBtn = { background: settings.isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)", border: `1px solid ${C.border}`, borderRadius: 10, padding: narrow ? "8px 8px" : "8px 10px", cursor: "pointer", display: "flex", alignItems: "center", position: "relative", transition: "background .15s ease" };
 
   return (
     <div style={{ background: C.bg, minHeight: "100vh", display: "flex", flexDirection: "column", fontFamily: C.sans, maxWidth: 480, margin: "0 auto", position: "relative" }}>
@@ -102,8 +122,8 @@ function Shell() {
 
       {/* Header */}
       <div style={{ background: C.headerBg, borderBottom: `1px solid ${C.border}`, padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, zIndex: 10 }}>
-        <Logo height={24} />
-        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+        <Logo height={narrow ? 20 : 24} withText={!markOnly} />
+        <div style={{ display: "flex", gap: narrow ? 4 : 6, alignItems: "center", flexShrink: 0 }}>
           <div onClick={() => setShowNotifs(true)} style={iconBtn} title="Notifications">
             <Icon name="bell" size={15} color={hasCancel ? C.red : C.soft} />
             {unread > 0 && (
@@ -116,9 +136,9 @@ function Shell() {
           <div onClick={() => setShowSettings(true)} style={iconBtn} title="Settings">
             <Icon name="gear" size={15} color={C.soft} />
           </div>
-          <div onClick={() => setShowAdd(true)} style={{ background: `linear-gradient(135deg,${C.accent},#007aaa)`, borderRadius: 10, padding: "8px 12px", cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}>
+          <div onClick={() => setShowAdd(true)} title="Add" style={{ background: `linear-gradient(135deg,${C.accent},#007aaa)`, borderRadius: 10, padding: narrow ? "8px 10px" : "8px 12px", cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}>
             <Icon name="plus" size={13} color="#000" strokeWidth={2.6} />
-            <span style={{ fontSize: 12, color: "#000", fontWeight: 800 }}>Add</span>
+            {!narrow && <span style={{ fontSize: 12, color: "#000", fontWeight: 800 }}>Add</span>}
           </div>
           <div onClick={() => setShowCorp(true)} style={{ ...iconBtn, background: "rgba(167,139,250,0.08)", border: "1px solid rgba(167,139,250,0.25)" }} title="Corporate">
             <Icon name="building" size={15} color={C.purple} />
