@@ -1,9 +1,21 @@
 // MyRunway service worker — cache-first app shell so boarding passes and the
 // trip stay available with no signal.
-const CACHE = "myrunway-shell-v1";
+//
+// Navigations are network-first on purpose. index.html names the hashed JS
+// bundle, so serving a stale shell pins the device to an old build forever:
+// the cache name never changes, so activate clears nothing, and a returning
+// visitor never sees a deploy again. Network-first keeps the device current
+// and still falls back to the cached shell when there is no signal.
+// Hashed /assets/ files are immutable, so those stay cache-first.
+//
+// Bump VERSION on any change here: the byte change is what makes browsers
+// install the new worker, and activate then drops every older cache.
+const VERSION = "v2";
+const CACHE = `myrunway-shell-${VERSION}`;
+const PRECACHE = ["/", "/index.html", "/manifest.webmanifest", "/icon.svg"];
 
 self.addEventListener("install", (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(["/", "/index.html", "/manifest.webmanifest", "/icon.svg"])));
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(PRECACHE)));
   self.skipWaiting();
 });
 
@@ -14,14 +26,32 @@ self.addEventListener("activate", (e) => {
 });
 
 self.addEventListener("fetch", (e) => {
-  if (e.request.method !== "GET" || !e.request.url.startsWith(self.location.origin)) return;
+  const req = e.request;
+  if (req.method !== "GET" || !req.url.startsWith(self.location.origin)) return;
+
+  // The app shell: always try the network so a deploy actually lands, and keep
+  // a fresh copy for the offline case.
+  if (req.mode === "navigate") {
+    e.respondWith(
+      fetch(req)
+        .then((res) => {
+          const copy = res.clone();
+          caches.open(CACHE).then((c) => c.put("/index.html", copy));
+          return res;
+        })
+        .catch(() => caches.match("/index.html").then((hit) => hit || caches.match("/")))
+    );
+    return;
+  }
+
+  // Hashed assets and icons: cache-first, filling the cache on a miss.
   e.respondWith(
-    caches.match(e.request).then(
+    caches.match(req).then(
       (hit) =>
         hit ||
-        fetch(e.request).then((res) => {
+        fetch(req).then((res) => {
           const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put(e.request, copy));
+          caches.open(CACHE).then((c) => c.put(req, copy));
           return res;
         })
     )
