@@ -11,6 +11,7 @@ import { fetchAirportWeather, fetchWeatherAt } from "./lib/weather.js";
 import { buildTripIcs, downloadText } from "./lib/ics.js";
 import { lateInbound } from "./lib/lateInbound.js";
 import { eu261Estimate } from "./lib/eu261.js";
+import { isUsInternationalArrival, CBP_MPC_URL } from "./lib/travelInfo.js";
 import { buildTripsCsv, buildTripsJson, downloadBlob } from "./lib/exportData.js";
 
 const DARK = {
@@ -334,6 +335,7 @@ function FlightCard({ f, live, liveMeta, now, onTap, onInfo, extraChips = [] }) 
           const e = eu261Estimate({ dep:f.dep, arr:f.arr, carrier:f.code, arrDelayMins:t.arrDelay, cancelled:t.cancelled });
           if (e.covered && e.eligible !== false) list.push({ id:"comp", icon:"money", tone:C.green, text: e.amountEur ? `Compensation · up to €${e.amountEur}` : "Compensation may be owed", data:e });
         }
+        if (!t.cancelled && phase !== "completed" && isUsInternationalArrival(f)) list.push({ id:"customs", icon:"door", tone:C.accent, text:"Customs: set up MPC" });
         list.push(...extraChips);
         if (!list.length || !onInfo) return null;
         return (
@@ -642,6 +644,19 @@ function CompensationSheet({ f, data, onClose }) {
       <div role="note" style={{ marginTop:12, padding:"12px 14px", borderRadius:14, background:tint(C.yellow,0.12), color:C.text, fontSize:13, lineHeight:1.5 }}>
         <b>Estimate only, not legal advice.</b> Bands: €250 up to 1,500 km, €400 for 1,500–3,500 km (or intra-EU over 1,500 km), €600 over 3,500 km, by great-circle distance. Keep your boarding pass and receipts and claim with the operating airline first.
       </div>
+    </Sheet>
+  );
+}
+
+function CustomsSheet({ f, onClose }) {
+  const ap = airport(f.arr);
+  const steps = ["Download the free Mobile Passport Control app (CBP) before you land.", "Add everyone travelling on your passport details, including kids.", `After landing at ${f.arr}, choose the airport, answer the questions and submit with a selfie.`, "Follow the Mobile Passport Control signs with your passports ready."];
+  return (
+    <Sheet onClose={onClose} testid="sheet-customs" label="US customs reminder">
+      <SheetTitle title="Arriving in the US" sub={`${f.iata} lands at ${ap?.name || f.arr}. Set up Mobile Passport Control before landing to speed through customs.`} onClose={onClose}/>
+      <ol style={{ margin:"0 0 16px", padding:"0 0 0 20px", color:C.text, fontSize:15, lineHeight:1.6 }}>{steps.map(x=><li key={x} style={{ marginBottom:6 }}>{x}</li>)}</ol>
+      <a className="mr-btn" href={CBP_MPC_URL} target="_blank" rel="noopener noreferrer" style={{ ...pillBtn(true), display:"flex", alignItems:"center", justifyContent:"center", textDecoration:"none" }}>Open CBP Mobile Passport Control ↗</a>
+      <div style={{ fontSize:12, color:C.muted, marginTop:10, lineHeight:1.4 }}>Official U.S. Customs and Border Protection page. Eligibility and participating airports are set by CBP.</div>
     </Sheet>
   );
 }
@@ -2367,6 +2382,7 @@ export default function MyRunway() {
       {overlay==="share"&&<ShareModal onClose={close} flight={nextFlight} live={nextFlight?getLive(nextFlight.id):null} now={now}/>}
       {overlay==="settings"&&<SettingsModal onClose={close} isDark={isDark} setIsDark={setIsDark} homeAddress={homeAddress} setHomeAddress={setHomeAddress} stayAddress={stayAddress} setStayAddress={setStayAddress} prefs={prefs} setPrefs={setPrefs} withKids={withKids} setWithKids={setWithKids} accountType={accountType} setAccountType={setAccountType} navIdx={navIdx} setNavIdx={setNavIdx} demoClock={demoClock} setDemoClock={setDemoClock} scenario={savedScenario} setScenario={s=>{ setScenario(s); setCancelDismissed(false); }} onPlans={()=>setOverlay("plans")}/>}
       {info?.kind==="comp"&&<CompensationSheet f={info.f} data={info.data} onClose={()=>setInfo(null)}/>}
+      {info?.kind==="customs"&&<CustomsSheet f={info.f} onClose={()=>setInfo(null)}/>}
       {overlay==="more"&&<MoreSheet onClose={close} tools={tools.filter(t=>t[0]!=="weather"&&t[0]!=="intel")} onExport={exportData} onOpen={setOverlay}/>}
       {overlay==="corp"&&<CorporateDashboard onClose={close} corpRole="admin"/>}
       {overlay==="plans"&&<OverlayPage testid="plans" title="Plans & pricing" onBack={close}><PlansScreen/></OverlayPage>}
