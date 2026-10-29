@@ -28,5 +28,5 @@ function localApi(mode) {
 
 export default defineConfig(({ mode }) => ({
   plugins: [react(), localApi(mode)],
-  test: { include: ['src/**/*.test.js', 'api/**/*.test.js'] },
+  test: { include: ["src/**/*.test.js", "api/**/*.test.js"] },
 }))

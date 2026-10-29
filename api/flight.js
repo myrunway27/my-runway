@@ -171,7 +171,8 @@ export default async function handler(req, res) {
     avs: env.AVIATIONSTACK_API_KEY,
   };
   if (!keys.fa && !keys.adb && !keys.avs) {
-    return send(res, 503, { configured: false, error: "live_data_not_configured" });
+    // 200, not 503: "no keys yet" is a normal state and the app quietly falls back to the booking
+    return send(res, 200, { configured: false, error: "live_data_not_configured" });
   }
 
   const cacheKey = `${ident}|${date}|${sched || ""}`;
