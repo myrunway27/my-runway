@@ -39,7 +39,7 @@ export function mockLive(f, scenario) {
   }
   if (scenario === "delay") {
     if (f.id === "f2") return { ...base, status: "Delayed", depGate: "C7", depDelayMins: 35, arrDelayMins: 30, estDep: iso(s.dep, 35), estArr: iso(s.arr, 30),
-      inbound: { ident: "LY 346", origin: "ZRH", status: "In Air", delayMins: 40 } };
+      inbound: { ident: "LY 346", origin: "ZRH", status: "In Air", delayMins: 40, estArr: iso(s.dep, -25) } };
     if (f.id === "f3") return { ...base, status: "Scheduled", depGate: "E31", arrGate: "J18", estDep: iso(s.dep, 0), estArr: iso(s.arr, 0) };
     return null;
   }

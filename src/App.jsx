@@ -9,6 +9,7 @@ import {
 import { fetchLive, mockLive, verifyFlight, MOCK_SCENARIOS } from "./lib/liveData.js";
 import { fetchAirportWeather, fetchWeatherAt } from "./lib/weather.js";
 import { buildTripIcs, downloadText } from "./lib/ics.js";
+import { lateInbound } from "./lib/lateInbound.js";
 
 const DARK = {
   bg:"#04070e", surface:"#090f1c", card:"#0d1525", border:"#13203a",
@@ -309,17 +310,22 @@ function FlightCard({ f, live, liveMeta, now, onTap }) {
           {f.date&&<span style={{ background:C.surface, borderRadius:8, padding:"5px 11px", fontSize:12, color:C.soft, border:`1px solid ${C.border}` }}>{f.date}</span>}
         </div>
       </div>
-      {inbound&&(
-        <div style={{ marginTop:12, paddingTop:12, borderTop:`1px solid ${C.border}`, display:"flex", alignItems:"center", gap:10 }}>
-          <StatIcon id="refresh" color={inbound.delayMins>15?C.yellow:C.muted} size={16}/>
-          <div style={{ flex:1 }}>
-            <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:0.5, marginBottom:2 }}>YOUR INCOMING AIRCRAFT</div>
-            <div style={{ fontSize:12, color:inbound.delayMins>15?C.yellow:C.soft }}>
-              {inbound.ident ? `${inbound.ident} ` : ""}from {inbound.origin || "origin"} · {inbound.status || "status unknown"}{inbound.delayMins>15?` · running ${inbound.delayMins} min late`:" · on time"}
+      {inbound&&(()=>{
+        const li = lateInbound({ inbound, ourDep: t.estDep, aircraft: f.aircraft });
+        const warn = li.level==="late" || li.level==="watch", tight = li.level==="tight";
+        const col = warn ? C.red : tight ? C.yellow : C.soft;
+        return (
+          <div data-testid={`inbound-${f.id}`} role={warn||tight?"status":undefined} style={{ marginTop:12, paddingTop:12, borderTop:`1px solid ${C.border}`, display:"flex", alignItems:"center", gap:10 }}>
+            <StatIcon id="refresh" color={warn?C.red:tight?C.yellow:C.muted} size={16}/>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontSize:11, color:warn?C.red:C.muted, fontWeight:warn?700:400, letterSpacing:0.5, marginBottom:2 }}>{warn?"LATE PLANE ALERT":tight?"TIGHT TURNAROUND":"YOUR INCOMING AIRCRAFT"}</div>
+              <div style={{ fontSize:12, color:col }}>
+                {li.message || `${inbound.ident ? `${inbound.ident} ` : ""}from ${inbound.origin || "origin"} · ${inbound.status || "status unknown"}${li.eta?` · lands ${fmtClock(li.eta, depTz)}`:""}`}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
       {DEV_MODE && liveMeta && (
         <div style={{ marginTop:10, paddingTop:8, borderTop:`1px dashed ${C.border}`, fontSize:10, color:C.muted, fontFamily:C.mono, lineHeight:1.6 }}>
           DATA SOURCES · {liveMeta.mock ? "mock scenario" : !liveMeta.configured ? "proxy not configured (booking only)" :
