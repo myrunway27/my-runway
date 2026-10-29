@@ -63,3 +63,13 @@ and exits non-zero on any console error/warning or page error.
 
 Weather uses Open-Meteo (no key). Git author in this repo is a local placeholder
 (`asaf@myrunway.local`) — amend before pushing if you want your real identity.
+
+## API abuse protection (free, best effort)
+
+`api/flight.js` and `api/faa.js` share `api/_guard.js`:
+
+- **Rate limit:** per-IP sliding window, 30 req/min for `/api/flight` and 60 req/min for `/api/faa`. Over the limit you get `429` with `Retry-After`.
+  **The counters live in memory, so they are per serverless instance and reset on cold starts.** Vercel can run several instances, so this is best effort against a single noisy client, not a global quota. A hard quota would need a shared store (e.g. Vercel KV/Upstash), which is intentionally not used here.
+- **Origin check:** if a request carries `Origin`/`Referer`, the host must be `myrunwayapp.co` (or `www.`), `*.vercel.app`, or localhost; otherwise `403`. Requests without those headers are allowed (they are still rate-limited).
+- **Input validation (`/api/flight`):** ident must match `^[A-Z0-9]{2}\d{1,4}[A-Z]?$`, date must be a real `YYYY-MM-DD` within ±3 days of today (UTC), `sched` must be an ISO time within 2 days of that date. Anything else is `400`.
+- **Caching:** `/api/faa` answers with `Cache-Control: public, max-age=0, s-maxage=60, stale-while-revalidate=60`, so Vercel's edge serves most clients for ~60s without invoking the function.
