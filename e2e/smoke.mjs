@@ -36,8 +36,11 @@ for (const [label, viewport, dpr] of sizes) {
   await shot(page, `${label}-03-settings`);
   await page.getByTestId("settings-save").click();
   await page.mouse.click(5, 5);
+  await page.waitForSelector('[data-testid="glance-changed-f2"]');
+  await page.getByTestId("expand-f2").click();
   await page.waitForSelector('[data-testid="what-changed"]');
   await shot(page, `${label}-04-delay-whatchanged`);
+  await page.getByTestId("expand-f3").click();
   await page.getByTestId("connection-card").click();
   await full(page, `${label}-05-delay-full`);
 

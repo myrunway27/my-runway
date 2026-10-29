@@ -273,7 +273,8 @@ function ConnectionCard({ inbound, outbound, liveIn, liveOut, withKids }) {
   );
 }
 
-function FlightCard({ f, live, liveMeta, now, onTap, onInfo, extraChips = [] }) {
+function FlightCard({ f, live, liveMeta, now, onTap, onInfo, extraChips = [], glance = [], details = null }) {
+  const [open, setOpen] = useState(false);
   const phase = flightPhase(f, live, now);
   const status = displayStatus(f, live, phase);
   const s = sc(status);
@@ -316,6 +317,17 @@ function FlightCard({ f, live, liveMeta, now, onTap, onInfo, extraChips = [] }) 
           {f.date&&<span style={{ background:C.surface, borderRadius:8, padding:"5px 11px", fontSize:12, color:C.soft, border:`1px solid ${C.border}` }}>{f.date}</span>}
         </div>
       </div>
+      {glance.length>0 && (
+        <ul aria-label={`${f.iata} at a glance`} style={{ listStyle:"none", margin:"12px 0 0", padding:"10px 0 0", borderTop:`1px solid ${C.border}`, display:"grid", gridTemplateColumns:"minmax(0,1fr)", gap:8 }}>
+          {glance.map(g=>(
+            <li key={g.id} data-testid={`glance-${g.id}-${f.id}`} role={g.alert?"status":undefined} style={{ display:"flex", alignItems:"center", gap:10, minHeight:24 }}>
+              <StatIcon id={g.icon} color={g.tone||C.muted} size={16}/>
+              <span style={{ fontSize:12, color:C.muted, width:86, flexShrink:0 }}>{g.label}</span>
+              <span style={{ fontSize:13, color:g.tone && g.tone!==C.muted ? g.tone : C.text, fontWeight:g.alert?700:500, flex:1, minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{g.text}</span>
+            </li>
+          ))}
+        </ul>
+      )}
       {inbound&&(()=>{
         const li = lateInbound({ inbound, ourDep: t.schedDep, aircraft: f.aircraft, knownDelayMins: Math.max(0, t.depDelay) });
         const warn = li.level==="late" || li.level==="watch", tight = li.level==="tight";
@@ -351,6 +363,13 @@ function FlightCard({ f, live, liveMeta, now, onTap, onInfo, extraChips = [] }) 
           </div>
         );
       })()}
+      {details && <>
+        <button type="button" className="mr-btn" data-testid={`expand-${f.id}`} aria-expanded={open} aria-controls={`details-${f.id}`} onClick={()=>setOpen(o=>!o)}
+          style={{ width:"100%", minHeight:44, marginTop:12, display:"flex", alignItems:"center", justifyContent:"center", gap:6, background:"transparent", border:"none", borderTop:`1px solid ${C.border}`, color:C.accent, fontSize:14, fontWeight:600, cursor:"pointer", fontFamily:C.sans }}>
+          {open ? "Hide details" : "Details"}<span aria-hidden="true" style={{ display:"inline-block", transition:"transform .3s cubic-bezier(.34,1.4,.64,1)", transform:open?"rotate(180deg)":"none" }}>⌄</span>
+        </button>
+        {open && <div id={`details-${f.id}`} data-testid={`details-${f.id}`} className="mr-details" style={{ marginTop:4, animation:"cardIn 0.35s cubic-bezier(.34,1.4,.64,1)" }}>{details}</div>}
+      </>}
       {DEV_MODE && liveMeta && (
         <div style={{ marginTop:10, paddingTop:8, borderTop:`1px dashed ${C.border}`, fontSize:10, color:C.muted, fontFamily:C.mono, lineHeight:1.6 }}>
           DATA SOURCES · {liveMeta.mock ? "mock scenario" : !liveMeta.configured ? "proxy not configured (booking only)" :
@@ -1006,6 +1025,36 @@ function ToolChips({ items }) {
   );
 }
 
+// Key facts for the primary card (the full cards live behind "Details").
+function glanceFor(f, live, { now, prefs, isNext, onwardCancelled, inbound, liveIn, withKids, hasCheckin }) {
+  const out = [];
+  const changes = diffBookingVsLive(f, live);
+  if (changes.length) {
+    const worst = changes.some(c=>c.severity==="red") ? "red" : changes.some(c=>c.severity==="yellow") ? "yellow" : "accent";
+    out.push({ id:"changed", icon:"alert", label:"Changed", tone:SEV()[worst], alert:worst==="red", text: changes[0].text + (changes.length>1 ? ` · +${changes.length-1} more` : "") });
+  }
+  if (isNext) {
+    const lb = computeLeaveBy(f, live, prefs);
+    const st = leaveStateOf(now, lb);
+    if (st !== "gone") {
+      const cfg = LEAVE_CFG()[st];
+      out.push({ id:"leave", icon:"clock", label:"Leave by", tone: st==="ok" ? C.text : cfg.c, alert: st==="now",
+        text: `${fmtClock(lb.leaveBy, tzOf(f.dep))} · ${st==="now" ? "time to go" : `in ${fmtDuration(diffMinutes(lb.leaveBy, now))}`}` });
+    }
+    if (onwardCancelled) out.push({ id:"onward", icon:"alert", label:"Connection", tone:C.red, alert:true, text:`${onwardCancelled.iata} cancelled · rebook` });
+  }
+  if (inbound) {
+    const r = connectionRisk(inbound, f, liveIn, live, { terminalChange: !!f.conn?.terminalChange, withKids });
+    const copy = RISK_COPY[r.level];
+    out.push({ id:"conn", icon:"refresh", label:"Connection", tone: r.level==="relaxed" ? C.text : C[copy.color], alert: r.level==="at-risk", text:`${fmtDuration(r.mins)} at ${f.dep} · ${copy.label.toLowerCase()}` });
+  }
+  if (hasCheckin) {
+    const w = checkinWindow(f, now);
+    out.push({ id:"checkin", icon:"ticket", label:"Check-in", tone: w.state==="open" ? C.green : C.text, text: w.state==="open" ? "Open now" : `Opens in ${fmtDuration(w.minsToOpen)}` });
+  }
+  return out;
+}
+
 // ── Main flights screen ──
 function FlightsScreen({ flights, getLive, getMeta, now, navIdx, homeAddress, stayAddress, prefs, withKids, onTap, onAdd, onEditPrefs, onCalendar, tools, liveStrip, onMore, onInfo, faa, faaNow, demo }) {
   const phases = flights.map(f => ({ f, phase: flightPhase(f, getLive(f.id), now) }));
@@ -1024,20 +1073,31 @@ function FlightsScreen({ flights, getLive, getMeta, now, navIdx, homeAddress, st
     <div style={{ padding:"14px 16px 120px" }}>
       {liveStrip}
       <ToolChips items={[...tools.filter(t=>t[0]==="weather"||t[0]==="intel"), ["more","more","More",onMore]]}/>
-      <WhatChangedBanner flights={upcoming} getLive={getLive}/>
-      {next && <LeaveByCard f={next} live={getLive(next.id)} now={now} navIdx={navIdx} homeAddress={homeAddress} stayAddress={stayAddress} prefs={prefs} onEdit={onEditPrefs} warning={onwardCancelled ? `Your connection ${onwardCancelled.iata} is cancelled. Rebook it before you leave for the airport.` : null}/>}
       <h2 style={{ fontSize:20, fontWeight:700, color:C.text, margin:"18px 2px 10px", letterSpacing:-0.3 }}>{upcoming.length?"Upcoming":"No upcoming flights"}</h2>
       {upcoming.map(f=>{
         const inbound = f.conn?.from && flights.find(x=>x.id===f.conn.from);
+        const live = getLive(f.id);
+        const hasConn = inbound && upcoming.includes(inbound);
+        const isNext = next && next.id === f.id;
+        const hasCheckin = checkinFlights.includes(f);
+        const isArr = arrF && arrF.id === f.id;
+        const g = glanceFor(f, live, { now, prefs, isNext, onwardCancelled, inbound: hasConn ? inbound : null, liveIn: hasConn ? getLive(inbound.id) : null, withKids, hasCheckin });
+        const details = (
+          <>
+            <WhatChangedBanner flights={[f]} getLive={getLive}/>
+            {isNext && <LeaveByCard f={f} live={live} now={now} navIdx={navIdx} homeAddress={homeAddress} stayAddress={stayAddress} prefs={prefs} onEdit={onEditPrefs} warning={onwardCancelled ? `Your connection ${onwardCancelled.iata} is cancelled. Rebook it before you leave for the airport.` : null}/>}
+            {hasConn && <ConnectionCard inbound={inbound} outbound={f} liveIn={getLive(inbound.id)} liveOut={live} withKids={withKids}/>}
+            {hasCheckin && <CheckinCard f={f} now={now} onCalendar={onCalendar}/>}
+            {isArr && <ArrivalCard f={f} live={live} now={now}/>}
+            <button type="button" className="mr-btn" onClick={()=>onTap(f)} style={{ ...pillBtn(), width:"100%" }}>Booking vs live, alternatives…</button>
+          </>
+        );
         return (
           <div key={f.id}>
-            {inbound && upcoming.includes(inbound) && <ConnectionCard inbound={inbound} outbound={f} liveIn={getLive(inbound.id)} liveOut={getLive(f.id)} withKids={withKids}/>}
-            <FlightCard f={f} live={getLive(f.id)} liveMeta={getMeta(f.id)} now={now} onTap={onTap} onInfo={onInfo} extraChips={[faaChip(faa, f, { now: faaNow, demo, live: getLive(f.id) })].filter(Boolean)}/>
+            <FlightCard f={f} live={live} liveMeta={getMeta(f.id)} now={now} onTap={onTap} onInfo={onInfo} glance={g} details={details} extraChips={[faaChip(faa, f, { now: faaNow, demo, live })].filter(Boolean)}/>
           </div>
         );
       })}
-      {arrF && <ArrivalCard f={arrF} live={getLive(arrF.id)} now={now}/>}
-      {checkinFlights.map(f=><CheckinCard key={f.id} f={f} now={now} onCalendar={onCalendar}/>)}
       <div onClick={onCalendar} data-testid="ics-trip" style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:8, background:C.surface, border:`1px solid ${C.border}`, borderRadius:14, padding:"13px 0", cursor:"pointer", marginBottom:14 }}>
         <StatIcon id="calendar" color={C.accent} size={18}/><span style={{ fontSize:13, fontWeight:700, color:C.text }}>Add trip to calendar (.ics with alerts)</span>
       </div>

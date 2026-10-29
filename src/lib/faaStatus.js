@@ -130,7 +130,7 @@ async function loadFaa({ timeoutMs = 6000 } = {}) {
   const ctl = new AbortController();
   const t = setTimeout(() => ctl.abort(), timeoutMs);
   try {
-    const r = await fetch("/api/faa", { signal: ctl.signal });
+    const r = await fetch("/api/faa", { signal: ctl.signal, cache: "no-store" });
     const type = r.headers.get("content-type") || "";
     if (!r.ok || !type.includes("application/json")) return { ok: false, error: r.ok ? "unavailable" : `HTTP ${r.status}` };
     const j = await r.json();
