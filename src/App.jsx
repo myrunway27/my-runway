@@ -1,5 +1,14 @@
-import { useState, useEffect } from "react";
-// Vintage aviation fonts loaded via CSS injection below
+import { useState, useEffect, useMemo } from "react";
+import MyRunwayBadge from "./components/MyRunwayBadge.jsx";
+import { airport } from "./lib/airports.js";
+import { fmtClock, fmtDay, fmtDuration, diffMinutes, tzLabel } from "./lib/time.js";
+import {
+  schedule, liveTimes, flightPhase, computeLeaveBy, leaveState as leaveStateOf,
+  connectionRisk, RISK_COPY, diffBookingVsLive, checkinWindow, tzOf,
+} from "./lib/trip.js";
+import { fetchLive, mockLive, verifyFlight, MOCK_SCENARIOS } from "./lib/liveData.js";
+import { fetchAirportWeather, fetchWeatherAt } from "./lib/weather.js";
+import { buildTripIcs, downloadText } from "./lib/ics.js";
 
 const DARK = {
   bg:"#04070e", surface:"#090f1c", card:"#0d1525", border:"#13203a",
@@ -20,70 +29,68 @@ const LIGHT = {
   deco:"'Courier New',monospace",
 };
 let C = DARK;
-// Global account type — "personal" | "pro" | "corporate"
-let ACCOUNT_TYPE = "personal";
-// Developer mode — set to false before publishing to App Store
-const DEV_MODE = true;
+// Developer panels (data sources, demo controls) only in `vite dev`, or with ?dev=1
+const DEV_MODE = import.meta.env.DEV || (typeof location !== "undefined" && new URLSearchParams(location.search).has("dev"));
 
+// ── Booking data: the source of truth. Live data only overlays day-of status. ──
+// depDate/arrDate are the LOCAL dates at the departure/arrival airport.
 const FLIGHTS = [
   {
     id:"f1", iata:"LY 018", code:"LY", airline:"El Al Israel Airlines",
-    dep:"MIA", arr:"TLV", depTime:"2:30 PM", arrTime:"9:30 AM+1",
-    status:"Scheduled", progress:0, gate:"TBD", terminal:"TBD",
-    aircraft:"Boeing 787-9", date:"Sun Jun 14, 2026", sortDate:"2026-06-14T14:30", conf:"8ZEH6P", trip:"outbound",
-    inbound:"Arriving from TLV, on the ground at MIA — on time",
-    wx:{
-      dep:{ icon:"🌤️", temp:88, cond:"Sunny", wind:10, note:"Great departure conditions" },
-      arr:{ icon:"☀️", temp:82, cond:"Sunny", wind:14, note:"Beautiful Tel Aviv morning" },
-    },
+    dep:"MIA", arr:"TLV", depDate:"2026-06-14", arrDate:"2026-06-15", depTime:"2:30 PM", arrTime:"9:30 AM",
+    status:"Scheduled", gate:"TBD", terminal:"TBD",
+    aircraft:"Boeing 787-9", date:"Sun Jun 14, 2026", conf:"8ZEH6P", trip:"outbound",
     conn:null,
   },
   {
     id:"f2", iata:"LY 347", code:"LY", airline:"El Al Israel Airlines",
-    dep:"TLV", arr:"ZRH", depTime:"8:00 AM", arrTime:"11:20 AM",
-    status:"Scheduled", progress:0, gate:"TBD", terminal:"3",
-    aircraft:"Boeing 737-800", date:"Thu Jul 2, 2026", sortDate:"2026-07-02T08:00", conf:"8ZEH6P", trip:"return",
-    wx:{
-      dep:{ icon:"☀️", temp:84, cond:"Sunny", wind:12, note:"Warm Tel Aviv morning" },
-      arr:{ icon:"⛅", temp:68, cond:"Partly Cloudy", wind:8, note:"Mild Zurich afternoon" },
-    },
+    dep:"TLV", arr:"ZRH", depDate:"2026-07-02", depTime:"8:00 AM", arrTime:"11:20 AM",
+    status:"Scheduled", gate:"TBD", terminal:"Terminal 3",
+    aircraft:"Boeing 737-800", date:"Thu Jul 2, 2026", conf:"8ZEH6P", trip:"return",
     conn:null,
   },
   {
     id:"f3", iata:"LX 064", code:"LX", airline:"Swiss International Air Lines",
-    dep:"ZRH", arr:"MIA", depTime:"1:00 PM", arrTime:"5:25 PM",
-    status:"Scheduled", progress:0, gate:"TBD", terminal:"TBD",
-    aircraft:"Boeing 777-300ER", date:"Thu Jul 2, 2026", sortDate:"2026-07-02T13:00", conf:"8ZEH6P", trip:"return",
-    wx:{
-      dep:{ icon:"⛅", temp:68, cond:"Partly Cloudy", wind:8, note:"Mild Zurich afternoon" },
-      arr:{ icon:"🌤️", temp:90, cond:"Sunny", wind:15, note:"Hot Miami afternoon — welcome home!" },
-    },
+    dep:"ZRH", arr:"MIA", depDate:"2026-07-02", depTime:"1:00 PM", arrTime:"5:25 PM",
+    status:"Scheduled", gate:"E26", terminal:"Terminal 2", arrGate:"J18", arrTerminal:"Terminal S",
+    aircraft:"Boeing 777-300ER", date:"Thu Jul 2, 2026", conf:"8ZEH6P", trip:"return",
     conn:{
-      arrTerminal:"Terminal 2", arrGate:"TBD",
-      depTerminal:"Terminal 2", depGate:"TBD",
-      walkMins:25, layoverMins:100, buffer:75,
-      transport:"Walk within terminal",
-      security:"Security screening required — allow extra time with children",
+      from:"f2", terminalChange:true,
+      arrTerminal:"Arrival gate TBD", depTerminal:"Terminal 2 · Dock E", depGate:"E26",
+      transport:"Terminal change at ZRH",
+      security:"Transfer security re-screen. TLV→MIA is non-Schengen to non-Schengen, so passport control is often skipped: follow Transit signs, not Exit.",
       steps:[
-        { icon:"🛬", label:"Deplane at ZRH Terminal 2", mins:10 },
-        { icon:"🔒", label:"Security screening", mins:20 },
-        { icon:"🚶", label:"Walk to departure gate", mins:10 },
+        { icon:"planeArrive", label:"Arrive ZRH from TLV (11:20 AM)", mins:10 },
+        { icon:"lock", label:"Transfer security re-screen (follow Transit)", mins:20 },
+        { icon:"walk", label:"Walk to Dock E, Gate E26", mins:15 },
       ],
     },
   },
 ];
+const TRIP = { name:"Israel family trip", range:"Jun 14 – Jul 2, 2026", withKids:true, passengers:6 };
 
 const NAV_APPS = [
-  { id:"waze", label:"Waze", color:"#00AFFF", bg:"rgba(0,175,255,0.12)", border:"rgba(0,175,255,0.3)", logo:"https://upload.wikimedia.org/wikipedia/commons/thumb/e/e6/Waze_icon.svg/96px-Waze_icon.svg.png" },
-  { id:"google", label:"Google Maps", color:"#4285F4", bg:"rgba(66,133,244,0.12)", border:"rgba(66,133,244,0.3)", logo:"https://upload.wikimedia.org/wikipedia/commons/thumb/b/bd/Google_Maps_Logo_2020.svg/96px-Google_Maps_Logo_2020.svg.png" },
-  { id:"apple", label:"Apple Maps", color:"#6eb5ff", bg:"rgba(110,181,255,0.12)", border:"rgba(110,181,255,0.3)", logo:"https://upload.wikimedia.org/wikipedia/commons/thumb/5/52/Apple_Maps_logo_2020.svg/96px-Apple_Maps_logo_2020.svg.png" },
+  { id:"waze", label:"Waze", color:"#00AFFF", mode:"drive" },
+  { id:"google", label:"Google Maps", color:"#4285F4", mode:"drive" },
+  { id:"apple", label:"Apple Maps", color:"#6eb5ff", mode:"drive" },
+  { id:"google_transit", label:"Google Transit", color:"#34A853", mode:"transit" },
+  { id:"citymapper", label:"Citymapper", color:"#00D1B2", mode:"transit" },
+  { id:"moovit", label:"Moovit", color:"#FF6D00", mode:"transit" },
 ];
 
-const LEAVE_CFG = {
-  later:{ c:"#00e87a", bg:"rgba(0,232,122,0.07)", br:"rgba(0,232,122,0.18)", icon:"✅", label:"ON TRACK", time:"11:00 AM", sub:"Leave in 2h 22m · LY 018 departs 2:30 PM" },
-  soon: { c:"#ffc800", bg:"rgba(255,200,0,0.07)", br:"rgba(255,200,0,0.18)", icon:"⏰", label:"LEAVING SOON", time:"11:00 AM", sub:"Leave in 48 min · LY 018 departs 2:30 PM" },
-  now:  { c:"#ff3a54", bg:"rgba(255,58,84,0.07)", br:"rgba(255,58,84,0.18)", icon:"🚨", label:"LEAVE NOW", time:"11:00 AM", sub:"Only 12 minutes! LY 018 departs 2:30 PM" },
-};
+// Deep links (open the user's chosen app with the airport as destination)
+function navUrl(app, ap) {
+  const q = encodeURIComponent(ap ? `${ap.name} (${ap.code})` : "airport");
+  const ll = ap ? `${ap.lat},${ap.lon}` : "";
+  switch (app.id) {
+    case "waze": return `https://waze.com/ul?ll=${ll}&navigate=yes`;
+    case "apple": return `https://maps.apple.com/?daddr=${ll}&q=${q}`;
+    case "google_transit": return `https://www.google.com/maps/dir/?api=1&destination=${q}&travelmode=transit`;
+    case "citymapper": return `https://citymapper.com/directions?endcoord=${ll}&endname=${q}`;
+    case "moovit": return `https://moovitapp.com/?to=${q}&tll=${ll}`;
+    default: return `https://www.google.com/maps/dir/?api=1&destination=${q}&travelmode=driving`;
+  }
+}
 
 const EMPLOYEES = [
   { id:1, name:"Sarah Chen", dept:"Sales", avatar:"SC", color:"#00c8f0", flight:"AA 100", dep:"JFK", arr:"LAX", status:"Departed", eta:"11:45 AM", progress:62, gate:"B22", delay:0, phone:"(212) 555-0101", saved:142 },
@@ -94,176 +101,897 @@ const EMPLOYEES = [
   { id:6, name:"James Rivera", dept:"Eng", avatar:"JR", color:"#00e87a", flight:"AA 200", dep:"BOS", arr:"DFW", status:"Landed", eta:"Arrived", progress:100, gate:"B8", delay:0, phone:"(972) 555-0188" },
 ];
 
-// SECURITY: hardcoded API keys removed (they were exposed in plaintext and must be rotated).
-const AERO_KEY = "";
-const AVSTACK_KEY = "";
-const FLIGHTAWARE_KEY = "";
-
-// AviationStack — real-time status, delays, times
-async function fetchAviationStack(flightNumber, date) {
-  const iata = flightNumber.replace(" ", "");
-  const url = `https://api.aviationstack.com/v1/flights?access_key=${AVSTACK_KEY}&flight_iata=${iata}&flight_date=${date}&limit=1`;
-  try {
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    const data = await res.json();
-    const f = data?.data?.[0];
-    if (!f) return null;
-    return {
-      status: f.flight_status || null,
-      depTime: f.departure?.scheduled?.slice(11,16) || null,
-      arrTime: f.arrival?.scheduled?.slice(11,16) || null,
-      depDelay: f.departure?.delay || 0,
-      arrDelay: f.arrival?.delay || 0,
-      depGate: f.departure?.gate || null,
-      depTerminal: f.departure?.terminal || null,
-      arrGate: f.arrival?.gate || null,
-      arrTerminal: f.arrival?.terminal || null,
-    };
-  } catch (e) {
-    console.error("AviationStack error:", e);
-    return null;
-  }
+// ── Small persistence helper (settings survive reloads) ──
+function usePersistentState(key, initial) {
+  const [v, setV] = useState(() => {
+    try { const s = localStorage.getItem(`mr:${key}`); return s === null ? initial : JSON.parse(s); } catch { return initial; }
+  });
+  useEffect(() => { try { localStorage.setItem(`mr:${key}`, JSON.stringify(v)); } catch { /* private mode */ } }, [key, v]);
+  return [v, setV];
 }
 
-// AeroDataBox — gate & terminal details
-async function fetchAeroDataBox(flightNumber, date) {
-  const iata = flightNumber.replace(" ", "");
-  const url = `https://aerodatabox.p.rapidapi.com/flights/number/${iata}/${date}`;
-  try {
-    const res = await fetch(url, {
-      headers: {
-        "x-rapidapi-key": AERO_KEY,
-        "x-rapidapi-host": "aerodatabox.p.rapidapi.com",
-        "Content-Type": "application/json",
-      },
+// Status label for a flight given the live overlay (falls back to booking status)
+function displayStatus(f, live, phase) {
+  if (live?.status === "Cancelled") return "Cancelled";
+  if (live?.status === "Diverted") return "Diverted";
+  if (phase === "completed") return "Landed";
+  if (phase === "in-air") return "In Air";
+  const t = liveTimes(f, live);
+  if (t.depDelay >= 15) return "Delayed";
+  return live?.status && live.status !== "Scheduled" ? live.status : f.status;
+}
+
+const REAL_CLOCK = { demo:false, now:() => new Date() };
+// Re-render every 15s; the clock decides what "now" is (real or demo replay)
+function useNow(clock = REAL_CLOCK) {
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setTick(x => x + 1), 15000);
+    return () => clearInterval(t);
+  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- tick drives the refresh
+  return useMemo(() => clock.now(), [clock, tick]);
+}
+
+function Arc({ progress=0, color="#00c8f0" }) {
+  const w=200, h=54, cx=w/2;
+  const pct = Math.max(0, Math.min(100, progress))/100;
+  const px = progress===0 ? cx : 16 + pct*(w-32);
+  const py = progress===0 ? h-28 : h-10 - Math.sin(pct*Math.PI)*24;
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} style={{ overflow:"visible", display:"block", margin:"0 auto", maxWidth:"100%" }}>
+      <path d={`M 16 ${h-8} Q ${cx} ${h-50} ${w-16} ${h-8}`} fill="none" stroke="#2a4060" strokeWidth="1.5" strokeDasharray="4 5"/>
+      <circle cx="16" cy={h-8} r="4" fill="#0d1525" stroke={color} strokeWidth="2"/>
+      <circle cx={w-16} cy={h-8} r="4" fill="#0d1525" stroke={color} strokeWidth="2"/>
+      <circle cx={px} cy={py} r="14" fill={color} opacity="0.25"/>
+      <circle cx={px} cy={py} r="14" fill="none" stroke={color} strokeWidth="2.5"/>
+      {/* line-art plane (no emoji glyphs) */}
+      <g transform={`translate(${px-8},${py-8}) scale(0.6667)`}><path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 00-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z" fill="#ffffff" transform="rotate(90 12 12)"/></g>
+    </svg>
+  );
+}
+
+const SEV = () => ({ red:C.red, yellow:C.yellow, accent:C.accent, green:C.green });
+const tint = (hex, a) => {
+  // "#rrggbb" -> rgba()
+  const h = hex.replace("#","");
+  const n = parseInt(h.length===3 ? h.split("").map(x=>x+x).join("") : h, 16);
+  return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`;
+};
+
+// ── "Updated X min ago" trust signal ──
+function agoLabel(iso, now) {
+  if (!iso) return null;
+  const m = Math.max(0, Math.round((now.getTime() - Date.parse(iso)) / 60000));
+  return m < 1 ? "just now" : m < 60 ? `${m} min ago` : `${Math.round(m/60)}h ago`;
+}
+
+function LiveStatusStrip({ liveState, scenario, realNow, hasCancellation }) {
+  const anyConfigured = Object.values(liveState).some(s => s?.configured);
+  const updatedAt = Object.values(liveState).map(s => s?.updatedAt).filter(Boolean).sort().pop();
+  const mock = scenario && scenario !== "off";
+  const tone = hasCancellation ? C.red : (anyConfigured || mock) ? C.green : C.soft;
+  const title = hasCancellation ? "Action needed on your trip" : mock ? "Live overlay: simulated" : anyConfigured ? "Live data on" : "Showing your booking";
+  const sub = mock ? `Demo scenario · ${MOCK_SCENARIOS.find(s=>s.id===scenario)?.label}` :
+    anyConfigured ? `Checked ${agoLabel(updatedAt, realNow) || "recently"} · booking times stay the source of truth` :
+    "Live status is off (no API key yet). Times, gates and terminals are from your booking.";
+  return (
+    <div data-testid="live-strip" style={{ display:"flex", alignItems:"center", gap:9, background:tint(tone==="#7a9ab8"?"#7a9ab8":tone, 0.07), borderRadius:12, border:`1px solid ${tint(tone, 0.22)}`, padding:"10px 14px", marginBottom:14 }}>
+      <div style={{ position:"relative", width:10, height:10, flexShrink:0 }}><div style={{ position:"absolute", inset:0, borderRadius:5, background:tone, animation:(anyConfigured||mock)?"pulse 2s infinite":"none" }}/></div>
+      <div style={{ flex:1, minWidth:0 }}>
+        <div style={{ fontSize:12, fontWeight:700, color:tone }}>{title}</div>
+        <div style={{ fontSize:11, color:C.soft, lineHeight:1.4 }}>{sub}</div>
+      </div>
+      <style>{`@keyframes pulse{0%{transform:scale(1);opacity:1}50%{transform:scale(1.6);opacity:0.4}100%{transform:scale(1);opacity:1}}`}</style>
+    </div>
+  );
+}
+
+// ── What changed: booking vs live ──
+function WhatChangedBanner({ flights, getLive }) {
+  const rows = flights.flatMap(f => diffBookingVsLive(f, getLive(f.id)).map(c => ({ ...c, f })));
+  if (!rows.length) return null;
+  const worst = rows.some(r=>r.severity==="red") ? "red" : rows.some(r=>r.severity==="yellow") ? "yellow" : "accent";
+  const col = SEV()[worst];
+  return (
+    <div data-testid="what-changed" style={{ background:tint(col,0.07), border:`1px solid ${tint(col,0.3)}`, borderRadius:16, padding:"13px 16px", marginBottom:14 }}>
+      <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+        <StatIcon id={worst==="accent"?"refresh":"alert"} color={col} size={18}/>
+        <div style={{ fontSize:12, fontWeight:800, color:col, fontFamily:C.mono, letterSpacing:1.5 }}>WHAT CHANGED SINCE YOU BOOKED</div>
+      </div>
+      {rows.map((r,i)=>(
+        <div key={i} style={{ display:"flex", gap:10, alignItems:"baseline", padding:"6px 0", borderTop:i?`1px solid ${tint(col,0.15)}`:"none" }}>
+          <span style={{ fontSize:11, fontWeight:800, color:C.text, fontFamily:C.mono, flexShrink:0, minWidth:52 }}>{r.f.iata}</span>
+          <span style={{ fontSize:13, color:SEV()[r.severity]===C.accent?C.text:SEV()[r.severity] }}>{r.text}</span>
+        </div>
+      ))}
+      <div style={{ fontSize:10, color:C.muted, marginTop:6 }}>Your booked times are unchanged in the app; changes show as overlays.</div>
+    </div>
+  );
+}
+
+// ── Connection risk (relaxed / tight / at risk) ──
+function ConnectionCard({ inbound, outbound, liveIn, liveOut, withKids }) {
+  const [open, setOpen] = useState(false);
+  const conn = outbound.conn;
+  const r = connectionRisk(inbound, outbound, liveIn, liveOut, { terminalChange: !!conn?.terminalChange, withKids });
+  const copy = RISK_COPY[r.level];
+  const col = C[copy.color];
+  const walk = (conn?.steps||[]).reduce((s,x)=>s+x.mins,0);
+  const tzA = tzOf(outbound.dep);
+  return (
+    <div data-testid="connection-card" style={{ background:tint(col,0.07), borderRadius:16, border:`1px solid ${tint(col,0.28)}`, overflow:"hidden", marginBottom:12, marginTop:2 }}>
+      <div onClick={()=>setOpen(o=>!o)} style={{ padding:"13px 16px", display:"flex", alignItems:"center", gap:12, cursor:"pointer" }}>
+        <div style={{ textAlign:"center", flexShrink:0 }}>
+          <div style={{ fontSize:9, color:C.muted, fontFamily:C.mono, letterSpacing:1 }}>{outbound.dep}</div>
+          <div style={{ fontSize:20, fontWeight:800, color:col, fontFamily:C.mono, lineHeight:1.1 }}>{fmtDuration(r.mins)}</div>
+        </div>
+        <div style={{ flex:1, minWidth:0 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:3 }}>
+            <span style={{ fontSize:10, fontWeight:800, color:"#000", background:col, borderRadius:20, padding:"2px 9px", fontFamily:C.mono, letterSpacing:1 }}>{copy.label}</span>
+            <span style={{ fontSize:12, color:C.soft }}>connection</span>
+          </div>
+          <div style={{ fontSize:12, color:C.soft }}>{copy.text}</div>
+          {r.changed && <div style={{ fontSize:11, color:C.yellow, marginTop:3 }}>Was {fmtDuration(r.scheduledMins)} when booked</div>}
+        </div>
+        <span style={{ fontSize:12, color:C.muted }}>{open?"▲":"▼"}</span>
+      </div>
+      {open&&(
+        <div style={{ padding:"0 16px 16px", borderTop:`1px solid ${tint(col,0.2)}` }}>
+          <div style={{ display:"flex", marginBottom:14, paddingTop:14 }}>
+            {[["LAYOVER",fmtDuration(r.mins),C.text],["NEED",`${r.mct}m`,C.yellow],["SPARE",`${r.slack}m`,col]].map(([l,v,c],i)=>(
+              <div key={l} style={{ flex:1, textAlign:"center", borderRight:i<2?`1px solid ${C.border}`:"none" }}>
+                <div style={{ fontSize:9, color:C.muted, fontFamily:C.mono, letterSpacing:1, marginBottom:5 }}>{l}</div>
+                <div style={{ fontSize:22, fontWeight:800, color:c, fontFamily:C.mono }}>{v}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ fontSize:11, color:C.soft, marginBottom:12, lineHeight:1.5 }}>
+            Land {fmtClock(r.arrAt, tzA)} · depart {fmtClock(r.depAt, tzA)} ({tzA.split("/")[1]} time). Minimum we plan for: {r.factors.map(f=>`${f.label.toLowerCase()} ${f.mins}m`).join(" + ")}.
+          </div>
+          {conn?.steps && <>
+            <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:1.5, marginBottom:8 }}>STEP BY STEP · ~{walk} MIN</div>
+            {conn.steps.map((s,i)=>(
+              <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"9px 0", borderBottom:i<conn.steps.length-1?`1px solid ${C.border}`:"none" }}>
+                <span style={{ width:28, display:"flex", justifyContent:"center", flexShrink:0 }}><StatIcon id={s.icon} color={C.soft} size={20}/></span>
+                <div style={{ flex:1, fontSize:13, color:C.text, fontWeight:500 }}>{s.label}</div>
+                <div style={{ fontSize:13, fontWeight:800, color:C.yellow, fontFamily:C.mono, flexShrink:0 }}>{s.mins}m</div>
+              </div>
+            ))}
+          </>}
+          {conn?.security && <div style={{ fontSize:11, color:C.soft, marginTop:10, lineHeight:1.5, display:"flex", gap:7 }}><StatIcon id="security" color={C.orange} size={14}/><span>{conn.security}</span></div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FlightCard({ f, live, liveMeta, now, onTap }) {
+  const phase = flightPhase(f, live, now);
+  const status = displayStatus(f, live, phase);
+  const s = sc(status);
+  const t = liveTimes(f, live);
+  const progress = phase==="completed" ? 100 : phase==="in-air" ? Math.round(100*(now - t.estDep)/(t.estArr - t.estDep)) : 0;
+  const gate = live?.depGate || f.gate;
+  const terminal = (live?.depTerminal || f.terminal || "TBD").replace(/^Terminal\s*/i,"");
+  const gateChanged = live?.depGate && f.gate !== "TBD" && live.depGate !== f.gate;
+  const depTz = tzOf(f.dep), arrTz = tzOf(f.arr);
+  const dayShift = f.arrDate && f.arrDate !== f.depDate ? "+1" : "";
+  const inbound = live?.inbound;
+  return (
+    <div data-testid={`flight-${f.id}`} style={{ background:C.card, borderRadius:20, border:`1px solid ${status==="Cancelled"?tint(C.red,0.45):C.border}`, padding:16, marginBottom:10, animation:"cardIn 0.4s ease", opacity:phase==="completed"?0.75:1 }}>
+      <div onClick={()=>onTap(f)} style={{ cursor:"pointer" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:14 }}>
+          <AirlineLogo code={f.code} size={30}/>
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ fontSize:16, fontWeight:800, color:C.text, fontFamily:C.mono }}>{f.iata}</div>
+            <div style={{ fontSize:12, color:C.soft, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{f.airline} · {f.aircraft}</div>
+          </div>
+          <StatusPill status={status}/>
+        </div>
+        <div style={{ display:"flex", alignItems:"center", marginBottom:14 }}>
+          <div style={{ textAlign:"center", minWidth:68 }}>
+            <div style={{ fontSize:30, fontWeight:800, color:C.text, fontFamily:C.mono, lineHeight:1 }}>{f.dep}</div>
+            <div style={{ fontSize:13, color:C.soft, fontWeight:600, marginTop:4, textDecoration:t.depDelay>=5?"line-through":"none" }}>{f.depTime}</div>
+            {t.depDelay>=5 && status!=="Cancelled" && <div style={{ fontSize:13, color:C.yellow, fontWeight:700 }}>{fmtClock(t.estDep, depTz)}</div>}
+          </div>
+          <div style={{ flex:1, display:"flex", justifyContent:"center", minWidth:0 }}><Arc progress={progress} color={s.c}/></div>
+          <div style={{ textAlign:"center", minWidth:68 }}>
+            <div style={{ fontSize:30, fontWeight:800, color:C.text, fontFamily:C.mono, lineHeight:1 }}>{f.arr}</div>
+            <div style={{ fontSize:13, color:C.soft, fontWeight:600, marginTop:4, textDecoration:t.arrDelay>=5?"line-through":"none" }}>{f.arrTime}{dayShift&&<sup style={{ fontSize:9 }}>{dayShift}</sup>}</div>
+            {t.arrDelay>=5 && status!=="Cancelled" && <div style={{ fontSize:13, color:C.yellow, fontWeight:700 }}>{fmtClock(t.estArr, arrTz)}</div>}
+          </div>
+        </div>
+        <div style={{ display:"flex", gap:6, flexWrap:"wrap", justifyContent:"center" }}>
+          <span style={{ background:gate!=="TBD"?tint(C.accent,0.1):C.surface, borderRadius:8, padding:"5px 11px", fontSize:12, color:gate!=="TBD"?C.accent:C.soft, border:`1px solid ${gateChanged?C.yellow:gate!=="TBD"?tint(C.accent,0.3):C.border}` }}>Gate <b style={{ color:gateChanged?C.yellow:gate!=="TBD"?C.accent:C.text, fontFamily:C.mono }}>{gate}</b></span>
+          <span style={{ background:terminal!=="TBD"?tint(C.accent,0.1):C.surface, borderRadius:8, padding:"5px 11px", fontSize:12, color:terminal!=="TBD"?C.accent:C.soft, border:`1px solid ${terminal!=="TBD"?tint(C.accent,0.3):C.border}` }}>Terminal <b style={{ color:terminal!=="TBD"?C.accent:C.text, fontFamily:C.mono }}>{terminal}</b></span>
+          {f.conf&&<span style={{ background:C.surface, borderRadius:8, padding:"5px 11px", fontSize:12, color:C.soft, border:`1px solid ${C.border}`, fontFamily:C.mono }}>CONF# {f.conf}</span>}
+          {f.date&&<span style={{ background:C.surface, borderRadius:8, padding:"5px 11px", fontSize:12, color:C.soft, border:`1px solid ${C.border}` }}>{f.date}</span>}
+        </div>
+      </div>
+      {inbound&&(
+        <div style={{ marginTop:12, paddingTop:12, borderTop:`1px solid ${C.border}`, display:"flex", alignItems:"center", gap:10 }}>
+          <StatIcon id="refresh" color={inbound.delayMins>15?C.yellow:C.muted} size={16}/>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:0.5, marginBottom:2 }}>YOUR INCOMING AIRCRAFT</div>
+            <div style={{ fontSize:12, color:inbound.delayMins>15?C.yellow:C.soft }}>
+              {inbound.ident ? `${inbound.ident} ` : ""}from {inbound.origin || "origin"} · {inbound.status || "status unknown"}{inbound.delayMins>15?` · running ${inbound.delayMins} min late`:" · on time"}
+            </div>
+          </div>
+        </div>
+      )}
+      {DEV_MODE && liveMeta && (
+        <div style={{ marginTop:10, paddingTop:8, borderTop:`1px dashed ${C.border}`, fontSize:10, color:C.muted, fontFamily:C.mono, lineHeight:1.6 }}>
+          DATA SOURCES · {liveMeta.mock ? "mock scenario" : !liveMeta.configured ? "proxy not configured (booking only)" :
+            Object.entries(liveMeta.sources||{}).map(([k,v])=>`${k}: ${v}`).join(" · ") || liveMeta.error || "—"}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Leave-by countdown (adjusts with delays) ──
+const LEAVE_CFG = () => ({
+  ok:   { c:C.green, icon:"check", label:"ON TRACK" },
+  soon: { c:C.yellow, icon:"clock", label:"LEAVING SOON" },
+  now:  { c:C.red, icon:"alert", label:"LEAVE NOW" },
+});
+
+function LeaveByCard({ f, live, now, navIdx, homeAddress, stayAddress, prefs, onEdit, warning }) {
+  const lb = computeLeaveBy(f, live, prefs);
+  const state = leaveStateOf(now, lb);
+  if (state === "gone") return null;
+  const cfg = LEAVE_CFG()[state];
+  const tz = tzOf(f.dep);
+  const ap = airport(f.dep);
+  const app = NAV_APPS[navIdx] || NAV_APPS[0];
+  const mins = diffMinutes(lb.leaveBy, now);
+  const atHome = ap?.code === "MIA";
+  const from = atHome ? (homeAddress || "Set your home address") : (stayAddress || `Where you're staying near ${ap?.city || f.dep}`);
+  const sub = state==="now" ? `Time to go · ${f.iata} departs ${fmtClock(lb.depAt, tz)}` : `Leave in ${fmtDuration(mins)} · ${f.iata} departs ${fmtClock(lb.depAt, tz)}`;
+  return (
+    <div data-testid="leave-by" style={{ background:C.card, borderRadius:20, border:`1px solid ${tint(cfg.c,0.25)}`, overflow:"hidden", marginBottom:14, marginTop:14 }}>
+      <div style={{ background:tint(cfg.c,0.07), padding:"13px 16px", display:"flex", alignItems:"center", gap:10, borderBottom:`1px solid ${tint(cfg.c,0.18)}` }}>
+        <StatIcon id={cfg.icon} color={cfg.c} size={22}/>
+        <div style={{ flex:1 }}><div style={{ fontSize:12, fontWeight:800, color:cfg.c, letterSpacing:1.5, fontFamily:C.mono }}>{cfg.label}</div><div style={{ fontSize:13, color:C.soft }}>{sub}</div></div>
+        <span style={{ fontSize:10, color:C.muted, fontFamily:C.mono }}>{fmtDay(lb.leaveBy, tz).toUpperCase()}</span>
+      </div>
+      <div style={{ padding:"16px" }}>
+        <div style={{ fontSize:11, color:C.muted, letterSpacing:2, fontFamily:C.mono, fontWeight:700, marginBottom:4, textAlign:"center" }}>LEAVE {atHome?"HOME":"FOR "+f.dep} BY</div>
+        <div style={{ fontFamily:C.display, fontSize:60, color:cfg.c, lineHeight:1, letterSpacing:2, marginBottom:6, textAlign:"center" }}>{fmtClock(lb.leaveBy, tz)}</div>
+        <div style={{ fontSize:11, color:C.muted, textAlign:"center", marginBottom:lb.shiftMins?6:14, fontFamily:C.mono }}>{ap?.city} time ({tzLabel(lb.leaveBy, tz)})</div>
+        {warning && <div data-testid="leave-warning" style={{ display:"flex", gap:8, alignItems:"flex-start", background:tint(C.red,0.08), border:`1px solid ${tint(C.red,0.3)}`, borderRadius:10, padding:"9px 12px", marginBottom:12 }}><StatIcon id="alert" color={C.red} size={16}/><span style={{ fontSize:12, color:C.red, lineHeight:1.45 }}>{warning}</span></div>}
+        {lb.shiftMins>0 && <div style={{ fontSize:12, color:C.yellow, textAlign:"center", marginBottom:14 }}>Moved {fmtDuration(lb.shiftMins)} later for the delay (was {fmtClock(lb.original, tz)})</div>}
+        <div style={{ display:"flex", background:C.surface, borderRadius:12, overflow:"hidden", marginBottom:10, border:`1px solid ${C.border}` }}>
+          {[["drive","Drive",`${lb.driveMins}m`,C.accent],["traffic","Traffic",`+${lb.trafficMins}m`,C.yellow],["security","Security",lb.securityMins?`~${lb.securityMins}m`:"—",C.orange],["buffer","Airport",fmtDuration(lb.bufferMins),C.accent]].map(([icon,label,val,col],i)=>(
+            <div key={label} style={{ flex:1, padding:"11px 0", textAlign:"center", borderRight:i<3?`1px solid ${C.border}`:"none" }}>
+              <div style={{ display:"flex", justifyContent:"center", marginBottom:5, height:20, alignItems:"center" }}><StatIcon id={icon} color={col} size={18}/></div>
+              <div style={{ fontSize:9, color:C.muted, fontFamily:C.mono, letterSpacing:0.8, marginBottom:2 }}>{label.toUpperCase()}</div>
+              <div style={{ fontSize:13, fontWeight:700, fontFamily:C.mono, color:col===C.accent?C.text:col }}>{val}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{ display:"flex", alignItems:"center", gap:7, marginBottom:14, padding:"0 2px" }}>
+          <StatIcon id="security" color={C.orange} size={13}/>
+          <span style={{ fontSize:11, color:C.soft }}>Security (~{lb.securityMins ?? "?"} min at {f.dep}) is inside your {fmtDuration(lb.bufferMins)} airport buffer</span>
+        </div>
+        <div style={{ display:"flex", alignItems:"center", gap:10, background:C.surface, borderRadius:11, padding:"11px 14px", marginBottom:14, border:`1px solid ${C.border}` }}>
+          <StatIcon id="home" color={C.accent} size={20}/>
+          <div style={{ flex:1, minWidth:0 }}><div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:1.5, marginBottom:2 }}>FROM</div><div style={{ fontSize:14, color:C.text, fontWeight:600 }}>{from}</div></div>
+          <span onClick={onEdit} style={{ fontSize:13, color:C.accent, cursor:"pointer" }}>Change</span>
+        </div>
+        <a href={navUrl(app, ap)} target="_blank" rel="noreferrer" style={{ textDecoration:"none", background:`linear-gradient(135deg,${app.color},${app.color}bb)`, borderRadius:14, padding:"15px 0", display:"flex", alignItems:"center", justifyContent:"center", gap:10, cursor:"pointer" }}>
+          <NavLogo app={app} size={22}/><span style={{ fontSize:15, fontWeight:800, color:"#000" }}>{app.mode==="transit"?"Transit Route":"Get Directions"} in {app.label}</span>
+        </a>
+      </div>
+    </div>
+  );
+}
+
+// ── Arrival card: local time + Open-Meteo weather (free, no key) ──
+function ArrivalCard({ f, live, now }) {
+  const t = liveTimes(f, live);
+  const ap = airport(f.arr);
+  const tz = tzOf(f.arr);
+  const [wx, setWx] = useState(null);
+  const [wxState, setWxState] = useState("loading");
+  const whenIso = t.estArr.toISOString();
+  useEffect(() => {
+    let alive = true;
+    fetchWeatherAt(f.arr, new Date(whenIso), new Date()).then(w => {
+      if (!alive) return;
+      setWx(w); setWxState(w ? (w.unavailable ? "far" : "ok") : "error");
     });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const f = Array.isArray(data) ? data[0] : data;
-    if (!f) return null;
-    return {
-      gate: f.departure?.gate || null,
-      depTerminal: f.departure?.terminal || null,
-      arrTerminal: f.arrival?.terminal || null,
+    return () => { alive = false; };
+  }, [f.arr, whenIso]);
+  const cancelled = t.cancelled;
+  const belt = live?.baggage;
+  const arrGate = live?.arrGate || f.arrGate || "TBD";
+  const arrTerminal = (live?.arrTerminal || f.arrTerminal || "TBD").replace(/^Terminal\s*/i,"");
+  return (
+    <div data-testid="arrival-card" style={{ background:C.card, borderRadius:20, border:`1px solid ${C.border}`, padding:16, marginBottom:14 }}>
+      <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:12 }}>
+        <StatIcon id="planeArrive" color={C.accent} size={18}/>
+        <div style={{ flex:1, fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:1.5 }}>ARRIVING {ap?.city?.toUpperCase()} · {f.iata}</div>
+      </div>
+      <div style={{ display:"flex", alignItems:"flex-end", gap:14, marginBottom:12 }}>
+        <div style={{ flex:1 }}>
+          <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:1 }}>{cancelled?"BOOKED ARRIVAL":t.arrDelay>=5?"ESTIMATED ARRIVAL":"SCHEDULED ARRIVAL"}</div>
+          <div style={{ fontFamily:C.display, fontSize:40, color:t.arrDelay>=5&&!cancelled?C.yellow:C.text, lineHeight:1.05 }}>{fmtClock(cancelled?t.schedArr:t.estArr, tz)}</div>
+          <div style={{ fontSize:12, color:C.soft }}>{fmtDay(t.schedArr, tz)} · local {tzLabel(t.schedArr, tz)}</div>
+        </div>
+        <div style={{ textAlign:"right" }}>
+          <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:1 }}>LOCAL TIME NOW</div>
+          <div style={{ fontSize:20, fontWeight:800, color:C.text, fontFamily:C.mono }}>{fmtClock(now, tz)}</div>
+        </div>
+      </div>
+      <div style={{ display:"flex", alignItems:"center", gap:12, background:C.surface, borderRadius:12, padding:"10px 12px", border:`1px solid ${C.border}`, marginBottom:10 }}>
+        {wxState==="ok" ? <>
+          <StatIcon id={wx.icon} color={C.accent} size={30}/>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:16, fontWeight:800, color:C.text }}>{wx.tempF}°F <span style={{ fontSize:12, color:C.soft, fontWeight:400 }}>({Math.round((wx.tempF-32)*5/9)}°C) · {wx.label}</span></div>
+            <div style={{ fontSize:11, color:C.muted }}>{wx.windMph} mph wind · at arrival time · Open-Meteo {wx.source==="historical"?"(archived forecast)":"forecast"}</div>
+          </div>
+        </> : <div style={{ fontSize:12, color:C.muted, padding:"4px 0" }}>{wxState==="loading"?"Loading arrival weather...":wxState==="far"?wx.unavailable:"Weather unavailable right now"}</div>}
+      </div>
+      <div style={{ display:"flex", gap:6 }}>
+        {[["TERMINAL",arrTerminal],["GATE",arrGate],["BAG BELT",belt||"—"]].map(([l,v])=>(
+          <div key={l} style={{ flex:1, background:C.surface, borderRadius:10, padding:"8px 6px", textAlign:"center", border:`1px solid ${C.border}` }}>
+            <div style={{ fontSize:9, color:C.muted, fontFamily:C.mono, letterSpacing:1 }}>{l}</div>
+            <div style={{ fontSize:14, fontWeight:800, color:v==="—"||v==="TBD"?C.soft:C.text, fontFamily:C.mono }}>{v}</div>
+          </div>
+        ))}
+      </div>
+      {!belt && <div style={{ fontSize:10, color:C.muted, marginTop:6 }}>Baggage belt appears once live data has it.</div>}
+    </div>
+  );
+}
+
+// ── 24h check-in reminder + calendar export ──
+function CheckinCard({ f, now, onCalendar }) {
+  const w = checkinWindow(f, now);
+  if (w.state === "closed") return null;
+  const tz = tzOf(f.dep);
+  const open = w.state === "open";
+  function remind() {
+    const ics = buildTripIcs([f], { now: new Date() });
+    downloadText(`check-in-${f.iata.replace(/\s/g,"")}.ics`, ics);
+  }
+  return (
+    <div data-testid="checkin-card" style={{ background:tint(C.accent,0.07), borderRadius:18, border:`1px solid ${tint(C.accent,0.25)}`, padding:16, marginTop:4, marginBottom:14 }}>
+      <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12 }}>
+        <StatIcon id="ticket" color={C.accent} size={22}/>
+        <div style={{ flex:1 }}>
+          <div style={{ fontSize:14, fontWeight:800, color:C.accent, marginBottom:2 }}>{open?"Check-in is open":`Check-in opens in ${fmtDuration(w.minsToOpen)}`}</div>
+          <div style={{ fontSize:12, color:C.soft }}>{f.iata} · {f.dep} → {f.arr} · {open?`closes ${fmtClock(w.closesAt, tz)}`:`${fmtDay(w.opensAt, tz)}, ${fmtClock(w.opensAt, tz)}`}</div>
+        </div>
+        <div style={{ background:tint(C.accent,0.15), borderRadius:8, padding:"4px 10px", border:`1px solid ${tint(C.accent,0.3)}` }}><span style={{ fontSize:10, color:C.accent, fontFamily:C.mono, fontWeight:700 }}>{w.hours}H RULE</span></div>
+      </div>
+      <div style={{ display:"flex", gap:8 }}>
+        {open && w.url
+          ? <a href={w.url} target="_blank" rel="noreferrer" style={{ flex:1, textDecoration:"none", background:`linear-gradient(135deg,${C.accent},#007aaa)`, borderRadius:11, padding:"11px 0", textAlign:"center", cursor:"pointer" }}><span style={{ fontSize:13, fontWeight:800, color:"#000" }}>Check In Now →</span></a>
+          : <div onClick={remind} data-testid="remind-btn" style={{ flex:1, background:`linear-gradient(135deg,${C.accent},#007aaa)`, borderRadius:11, padding:"11px 0", textAlign:"center", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}><StatIcon id="bell" color="#000" size={15}/><span style={{ fontSize:13, fontWeight:800, color:"#000" }}>Remind me (.ics)</span></div>}
+        <div onClick={onCalendar} data-testid="calendar-btn" title="Add whole trip to calendar" style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:11, padding:"11px 14px", textAlign:"center", cursor:"pointer", display:"flex", alignItems:"center", gap:6 }}><StatIcon id="calendar" color={C.soft} size={16}/><span style={{ fontSize:12, color:C.soft, fontWeight:700 }}>Trip</span></div>
+      </div>
+    </div>
+  );
+}
+
+// ── Flight detail sheet (tap a card) ──
+function FlightDetailSheet({ f, live, liveMeta, now, onClose, onAlternates }) {
+  const changes = diffBookingVsLive(f, live);
+  const t = liveTimes(f, live);
+  const depTz = tzOf(f.dep);
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", zIndex:60, display:"flex", flexDirection:"column", justifyContent:"flex-end" }} onClick={onClose}>
+      <div data-testid="flight-detail" onClick={e=>e.stopPropagation()} style={{ background:C.surface, borderTopLeftRadius:24, borderTopRightRadius:24, padding:"20px 16px 40px", border:`1px solid ${C.border}`, maxWidth:480, margin:"0 auto", width:"100%", maxHeight:"88vh", overflowY:"auto" }}>
+        <div style={{ width:36, height:4, background:C.border, borderRadius:2, margin:"0 auto 16px" }}/>
+        <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:14 }}>
+          <AirlineLogo code={f.code} size={30}/>
+          <div style={{ flex:1 }}><div style={{ fontSize:18, fontWeight:800, color:C.text, fontFamily:C.mono }}>{f.iata} · {f.dep} → {f.arr}</div><div style={{ fontSize:12, color:C.soft }}>{f.date} · departs {f.depTime} {airport(f.dep)?.city} time</div></div>
+          <div onClick={onClose} style={{ fontSize:18, color:C.muted, cursor:"pointer" }}>✕</div>
+        </div>
+        <div style={{ background:C.card, borderRadius:14, border:`1px solid ${C.border}`, padding:"12px 14px", marginBottom:12 }}>
+          <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:1.5, marginBottom:8 }}>BOOKING VS LIVE</div>
+          {[["Departure", f.depTime, t.depDelay>=5?fmtClock(t.estDep, depTz):null],["Arrival", f.arrTime, t.arrDelay>=5?fmtClock(t.estArr, tzOf(f.arr)):null],["Gate", f.gate, live?.depGate],["Terminal", f.terminal, live?.depTerminal]].map(([l,b,lv])=>(
+            <div key={l} style={{ display:"flex", padding:"6px 0", borderTop:`1px solid ${C.border}`, fontSize:13 }}>
+              <span style={{ flex:1, color:C.soft }}>{l}</span>
+              <span style={{ width:100, color:C.text, fontFamily:C.mono, textAlign:"right" }}>{b}</span>
+              <span style={{ width:100, color:lv&&lv!==b?C.yellow:C.muted, fontFamily:C.mono, textAlign:"right" }}>{lv||"—"}</span>
+            </div>
+          ))}
+          <div style={{ display:"flex", fontSize:9, color:C.muted, fontFamily:C.mono, marginTop:4 }}><span style={{ flex:1 }}/><span style={{ width:100, textAlign:"right" }}>BOOKED</span><span style={{ width:100, textAlign:"right" }}>LIVE</span></div>
+          {!changes.length && <div style={{ fontSize:11, color:C.muted, marginTop:6 }}>{live?"No changes from your booking.":"No live data yet. Showing your booking."}</div>}
+        </div>
+        <ArrivalCard f={f} live={live} now={now}/>
+        {t.cancelled && <div onClick={onAlternates} style={{ background:`linear-gradient(135deg,${C.red},#cc0022)`, borderRadius:12, padding:"13px 0", textAlign:"center", color:"#fff", fontWeight:800, cursor:"pointer", marginBottom:12 }}>Find Alternatives →</div>}
+        {DEV_MODE && liveMeta && <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono }}>source: {liveMeta.mock?"mock":liveMeta.configured?"proxy":"booking only"}</div>}
+      </div>
+    </div>
+  );
+}
+
+function DemoClockChip({ clock, now }) {
+  if (!clock.demo) return null;
+  const tz = clock.tz;
+  return (
+    <div data-testid="demo-clock" title="The trip dates have passed, so the app replays the travel day on a simulated clock. Turn off in Settings." style={{ display:"flex", alignItems:"center", gap:8, background:tint("#ffc800",0.08), border:`1px solid ${tint("#ffc800",0.3)}`, borderRadius:10, padding:"7px 12px", margin:"10px 16px 0" }}>
+      <StatIcon id="clock" color={C.yellow} size={14}/>
+      <span style={{ fontSize:10, color:C.yellow, fontFamily:C.mono, letterSpacing:1, fontWeight:700 }}>DEMO CLOCK</span>
+      <span style={{ fontSize:11, color:C.soft, flex:1 }}>{fmtDay(now, tz)}, {fmtClock(now, tz)} {airport(clock.airport)?.city} · replaying the travel day</span>
+    </div>
+  );
+}
+
+function notify(msg) { window.dispatchEvent(new CustomEvent("mr-toast", { detail: String(msg) })); }
+
+function Toasts() {
+  const [items, setItems] = useState([]);
+  useEffect(() => {
+    const h = e => {
+      const id = Math.random();
+      setItems(x => [...x, { id, text: e.detail }]);
+      setTimeout(() => setItems(x => x.filter(i => i.id !== id)), 3500);
     };
-  } catch (e) {
-    console.error("AeroDataBox error:", e);
-    return null;
-  }
+    window.addEventListener("mr-toast", h);
+    return () => window.removeEventListener("mr-toast", h);
+  }, []);
+  return (
+    <div style={{ position:"fixed", bottom:92, left:0, right:0, zIndex:200, display:"flex", flexDirection:"column", alignItems:"center", gap:6, pointerEvents:"none" }}>
+      {items.map(t => <div key={t.id} data-testid="toast" style={{ background:C.card, border:`1px solid ${C.accent}`, color:C.text, borderRadius:12, padding:"10px 14px", fontSize:13, maxWidth:420, margin:"0 16px", boxShadow:"0 6px 24px rgba(0,0,0,0.5)" }}>{t.text}</div>)}
+    </div>
+  );
 }
 
-// FlightAware AeroAPI — best gate/terminal data
-async function fetchFlightAware(flightNumber, date) {
-  const iata = flightNumber.replace(" ", "");
-  // FlightAware uses ident and date range
-  const start = `${date}T00:00:00Z`;
-  const end = `${date}T23:59:59Z`;
-  const url = `https://aeroapi.flightaware.com/aeroapi/flights/${iata}?start=${start}&end=${end}&max_pages=1`;
-  try {
-    const res = await fetch(url, {
-      headers: {
-        "x-apikey": FLIGHTAWARE_KEY,
-        "Accept": "application/json; charset=UTF-8",
-      },
+function Sheet({ onClose, children, testid }) {
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", zIndex:60, display:"flex", flexDirection:"column", justifyContent:"flex-end" }} onClick={onClose}>
+      <div data-testid={testid} onClick={e=>e.stopPropagation()} style={{ background:C.surface, borderTopLeftRadius:24, borderTopRightRadius:24, padding:"20px 20px 44px", border:`1px solid ${C.border}`, maxWidth:480, margin:"0 auto", width:"100%", maxHeight:"88vh", overflowY:"auto" }}>
+        <div style={{ width:36, height:4, background:C.border, borderRadius:2, margin:"0 auto 18px" }}/>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function OverlayPage({ title, sub, onBack, children, testid }) {
+  return (
+    <div data-testid={testid} style={{ position:"fixed", inset:0, background:C.bg, zIndex:50, overflowY:"auto" }}>
+      <div style={{ background:C===DARK?"rgba(4,7,14,0.98)":"rgba(255,255,248,0.98)", borderBottom:`1px solid ${C.border}`, padding:"14px 16px", display:"flex", alignItems:"center", gap:10, position:"sticky", top:0, zIndex:2 }}>
+        <div data-testid="back" onClick={onBack} style={{ width:34, height:34, borderRadius:17, background:C.surface, border:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", fontSize:18, color:C.accent }}>←</div>
+        <div style={{ flex:1 }}><div style={{ fontSize:16, fontWeight:800, color:C.text }}>{title}</div>{sub&&<div style={{ fontSize:12, color:C.soft }}>{sub}</div>}</div>
+      </div>
+      <div style={{ maxWidth:480, margin:"0 auto" }}>{children}</div>
+    </div>
+  );
+}
+
+const inputStyle = () => ({ width:"100%", background:C.card, border:`1.5px solid ${C.border}`, borderRadius:12, padding:"12px 14px", color:C.text, fontSize:14, outline:"none", boxSizing:"border-box", fontFamily:C.sans });
+const label = t => <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:1.5, marginBottom:6 }}>{t}</div>;
+
+// ── Add flight: honest. Manual entry from the booking; optional live check. ──
+function AddModal({ onClose, onAdd }) {
+  const [v, setV] = useState({ iata:"", date:"", dep:"", arr:"", depTime:"", arrTime:"", arrDate:"" });
+  const [check, setCheck] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const set = (k, x) => { setV(o => ({ ...o, [k]: x })); setCheck(null); };
+  const iataOk = /^[A-Z0-9]{2}\s?\d{1,4}[A-Z]?$/i.test(v.iata.trim());
+  const timeOk = t => /^\d{1,2}:\d{2}\s?(AM|PM)$/i.test(t.trim());
+  const ready = iataOk && v.date && /^[A-Z]{3}$/i.test(v.dep) && /^[A-Z]{3}$/i.test(v.arr) && timeOk(v.depTime) && timeOk(v.arrTime);
+  async function verify() {
+    setBusy(true);
+    setCheck(await verifyFlight(v.iata.toUpperCase(), v.date));
+    setBusy(false);
+  }
+  function add() {
+    const m = v.iata.toUpperCase().replace(/\s+/g,"").match(/^([A-Z0-9]{2})(\d+[A-Z]?)$/);
+    const d = new Date(`${v.date}T12:00:00Z`);
+    onAdd({
+      id:`u${Date.now()}`, iata:`${m[1]} ${m[2]}`, code:m[1], airline:m[1],
+      dep:v.dep.toUpperCase(), arr:v.arr.toUpperCase(), depDate:v.date, arrDate:v.arrDate||v.date,
+      depTime:v.depTime.toUpperCase().replace(/(\d)(AM|PM)/,"$1 $2"), arrTime:v.arrTime.toUpperCase().replace(/(\d)(AM|PM)/,"$1 $2"),
+      status:"Scheduled", gate:"TBD", terminal:"TBD", aircraft:"Aircraft TBD",
+      date:d.toLocaleDateString("en-US",{ weekday:"short", month:"short", day:"numeric", year:"numeric", timeZone:"UTC" }), conf:"", trip:"added", conn:null,
     });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const f = data?.flights?.[0];
-    if (!f) return null;
-    return {
-      status: f.status || null,
-      depGate: f.gate_origin || null,
-      arrGate: f.gate_destination || null,
-      depTerminal: f.terminal_origin || null,
-      arrTerminal: f.terminal_destination || null,
-      depDelay: f.departure_delay ? Math.round(f.departure_delay / 60) : 0,
-      arrDelay: f.arrival_delay ? Math.round(f.arrival_delay / 60) : 0,
-      depTime: f.scheduled_out?.slice(11, 16) || null,
-      arrTime: f.scheduled_in?.slice(11, 16) || null,
-      inboundId: f.inbound_fae_flight_id || null,
-    };
-  } catch (e) {
-    console.error("FlightAware error:", e);
-    return null;
+    notify(`${m[1]} ${m[2]} added`);
+    onClose();
   }
+  return (
+    <Sheet onClose={onClose} testid="add-modal">
+      <div style={{ fontFamily:C.display, fontStyle:"italic", fontSize:22, color:C.text, marginBottom:4 }}>Add a flight</div>
+      <div style={{ fontSize:12, color:C.soft, marginBottom:16 }}>Copy the times from your booking confirmation. Your booking stays the source of truth; live data only adds status on the day.</div>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
+        <div>{label("FLIGHT")}<input data-testid="add-iata" value={v.iata} onChange={e=>set("iata",e.target.value)} placeholder="LY 347" style={inputStyle()}/></div>
+        <div>{label("DEPARTURE DATE")}<input type="date" value={v.date} onChange={e=>set("date",e.target.value)} style={inputStyle()}/></div>
+        <div>{label("FROM (IATA)")}<input value={v.dep} maxLength={3} onChange={e=>set("dep",e.target.value)} placeholder="TLV" style={inputStyle()}/></div>
+        <div>{label("TO (IATA)")}<input value={v.arr} maxLength={3} onChange={e=>set("arr",e.target.value)} placeholder="ZRH" style={inputStyle()}/></div>
+        <div>{label("DEPARTS (LOCAL)")}<input value={v.depTime} onChange={e=>set("depTime",e.target.value)} placeholder="8:00 AM" style={inputStyle()}/></div>
+        <div>{label("ARRIVES (LOCAL)")}<input value={v.arrTime} onChange={e=>set("arrTime",e.target.value)} placeholder="11:20 AM" style={inputStyle()}/></div>
+      </div>
+      <div style={{ marginBottom:14 }}>{label("ARRIVAL DATE (IF DIFFERENT)")}<input type="date" value={v.arrDate} onChange={e=>set("arrDate",e.target.value)} style={inputStyle()}/></div>
+      {check && (
+        <div data-testid="add-check" style={{ fontSize:12, borderRadius:10, padding:"10px 12px", marginBottom:12, background:C.card, border:`1px solid ${C.border}`, color:check.found?C.green:check.configured?C.yellow:C.soft }}>
+          {!check.configured ? "Live lookup is off (no API key configured). You can still add the flight from your booking."
+            : check.error ? `Live lookup failed (${check.error}). You can still add it from your booking.`
+            : check.found ? `Found ${v.iata.toUpperCase()} in live data${check.live?.status?` · ${check.live.status}`:""}.`
+            : "Live data has no match for that flight and date yet. Double-check the number, or add it anyway."}
+        </div>
+      )}
+      <div style={{ display:"flex", gap:8 }}>
+        <div onClick={()=>iataOk&&v.date&&!busy&&verify()} style={{ flex:1, background:C.card, border:`1px solid ${C.border}`, borderRadius:12, padding:"13px 0", textAlign:"center", cursor:iataOk&&v.date?"pointer":"default", color:iataOk&&v.date?C.text:C.muted, fontWeight:700, fontSize:13 }}>{busy?"Checking...":"Check live"}</div>
+        <div data-testid="add-submit" onClick={()=>ready&&add()} style={{ flex:1.4, background:ready?`linear-gradient(135deg,${C.accent},#007aaa)`:C.surface, border:ready?"none":`1px solid ${C.border}`, borderRadius:12, padding:"13px 0", textAlign:"center", cursor:ready?"pointer":"default", color:ready?"#000":C.muted, fontWeight:800, fontSize:14 }}>Add to My Flights</div>
+      </div>
+      {!ready && <div style={{ fontSize:11, color:C.muted, marginTop:8 }}>Times like "8:00 AM"; airports as 3-letter codes.</div>}
+    </Sheet>
+  );
 }
 
-// Fetch the status of the inbound aircraft (the plane that becomes your flight)
-async function fetchInboundStatus(inboundId) {
-  if (!inboundId) return null;
-  const url = `https://aeroapi.flightaware.com/aeroapi/flights/${inboundId}`;
-  try {
-    const res = await fetch(url, {
-      headers: { "x-apikey": FLIGHTAWARE_KEY, "Accept": "application/json; charset=UTF-8" },
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const f = data?.flights?.[0];
-    if (!f) return null;
-    const origin = f.origin?.code_iata || f.origin?.code || "origin";
-    const delay = f.arrival_delay ? Math.round(f.arrival_delay / 60) : 0;
-    const st = f.status || "";
-    if (st.includes("Arrived") || st.includes("Landed")) {
-      return `Arriving from ${origin}, already on the ground — ${delay > 15 ? `${delay} min late` : "on time"}`;
-    }
-    if (st.includes("En Route")) {
-      return `Arriving from ${origin}, in the air — ${delay > 15 ? `running ${delay} min late ⚠️` : "on time"}`;
-    }
-    if (st.includes("Scheduled")) {
-      return `Arriving from ${origin}, not yet departed — ${delay > 15 ? `expected ${delay} min late ⚠️` : "on time"}`;
-    }
-    return `Arriving from ${origin} — ${st}`;
-  } catch (e) {
-    console.error("Inbound fetch error:", e);
-    return null;
+// ── Share: message built from the next flight, real clipboard / native share ──
+function ShareModal({ onClose, flight, live, now }) {
+  const [copied, setCopied] = useState(false);
+  const t = flight ? liveTimes(flight, live) : null;
+  const msg = flight ? [
+    `${flight.iata} ${airport(flight.dep)?.city||flight.dep} → ${airport(flight.arr)?.city||flight.arr}`,
+    `${flight.date} · departs ${flight.depTime}${t.depDelay>=5?` (now ${fmtClock(t.estDep, tzOf(flight.dep))})`:""}, arrives ${flight.arrTime}${t.arrDelay>=5?` (now ${fmtClock(t.estArr, tzOf(flight.arr))})`:""} local`,
+    t.cancelled ? "Update: this flight is CANCELLED, rebooking now." : null,
+    `Sent from My Runway`,
+  ].filter(Boolean).join("\n") : "No upcoming flights";
+  async function copy() {
+    try { await navigator.clipboard.writeText(msg); setCopied(true); setTimeout(()=>setCopied(false), 2000); }
+    catch { notify("Copy blocked by the browser. Select the text instead."); }
   }
+  async function share() {
+    if (navigator.share) { try { await navigator.share({ title:"My flight", text: msg }); } catch { /* cancelled */ } }
+    else copy();
+  }
+  return (
+    <Sheet onClose={onClose} testid="share-modal">
+      <div style={{ fontFamily:C.display, fontStyle:"italic", fontSize:22, color:C.text, marginBottom:4 }}>Share your flight</div>
+      <div style={{ fontSize:12, color:C.soft, marginBottom:14 }}>Built from your next flight{now?` (${fmtDay(now, tzOf(flight?.dep||"MIA"))})`:""}. Nothing is sent until you choose an app.</div>
+      <pre data-testid="share-text" style={{ whiteSpace:"pre-wrap", background:C.card, border:`1px solid ${C.border}`, borderRadius:12, padding:"14px", color:C.text, fontSize:13, fontFamily:C.mono, marginBottom:14, userSelect:"all" }}>{msg}</pre>
+      <div style={{ display:"flex", gap:8 }}>
+        <div onClick={copy} style={{ flex:1, background:C.card, border:`1px solid ${C.border}`, borderRadius:12, padding:"13px 0", textAlign:"center", cursor:"pointer", color:copied?C.green:C.text, fontWeight:700, fontSize:13 }}>{copied?"Copied":"Copy text"}</div>
+        <div onClick={share} style={{ flex:1, background:`linear-gradient(135deg,${C.accent},#007aaa)`, borderRadius:12, padding:"13px 0", textAlign:"center", cursor:"pointer", color:"#000", fontWeight:800, fontSize:13 }}>Share…</div>
+      </div>
+    </Sheet>
+  );
 }
 
-// Combined — all 3 APIs, best data wins
-async function fetchFlightInfo(flightNumber, date) {
-  const [avstack, aero, fa] = await Promise.allSettled([
-    fetchAviationStack(flightNumber, date),
-    fetchAeroDataBox(flightNumber, date),
-    fetchFlightAware(flightNumber, date),
-  ]);
-  const av = avstack.status === "fulfilled" ? avstack.value : null;
-  const ae = aero.status === "fulfilled" ? aero.value : null;
-  const fw = fa.status === "fulfilled" ? fa.value : null;
-
-  // FlightAware status normalization
-  const faStatus = fw?.status || "";
-  const faStatusNorm =
-    faStatus.includes("En Route") ? "In Air" :
-    faStatus.includes("Arrived") ? "Landed" :
-    faStatus.includes("Cancelled") ? "Cancelled" :
-    faStatus.includes("Delayed") ? "Delayed" :
-    faStatus.includes("Scheduled") ? "Scheduled" : null;
-
-  // AviationStack status normalization
-  const avRaw = av?.status || "";
-  const avStatusNorm =
-    avRaw === "active" ? "In Air" :
-    avRaw === "landed" ? "Landed" :
-    avRaw === "cancelled" ? "Cancelled" :
-    avRaw === "incident" ? "Delayed" :
-    avRaw === "scheduled" ? "Scheduled" : null;
-
-  // FlightAware wins on status & gates, AviationStack fills gaps, AeroDataBox as backup
-  const inbound = fw?.inboundId ? await fetchInboundStatus(fw.inboundId) : null;
-  return {
-    status: faStatusNorm || avStatusNorm || null,
-    depTime: fw?.depTime || av?.depTime || null,
-    arrTime: fw?.arrTime || av?.arrTime || null,
-    depDelay: fw?.depDelay || av?.depDelay || 0,
-    arrDelay: fw?.arrDelay || av?.arrDelay || 0,
-    gate: fw?.depGate || av?.depGate || ae?.gate || null,
-    depTerminal: fw?.depTerminal || av?.depTerminal || ae?.depTerminal || null,
-    arrTerminal: fw?.arrTerminal || av?.arrTerminal || ae?.arrTerminal || null,
-    inbound,
-  };
+// ── Alternates for a cancelled flight: real next steps, no invented inventory ──
+const MANAGE_URLS = { LY:"https://www.elal.com/eng/manage-booking", LX:"https://www.swiss.com/us/en/manage-booking" };
+function AlternateFlightsScreen({ onBack, flight }) {
+  const f = flight || FLIGHTS[0];
+  const gf = `https://www.google.com/travel/flights?q=${encodeURIComponent(`flights from ${f.dep} to ${f.arr} on ${f.depDate} one way`)}`;
+  const euRights = ["ZRH","LHR","CDG"].includes(f.dep) || f.code === "LX";
+  return (
+    <OverlayPage testid="alternates" title="Rebooking options" sub={`${f.iata} · ${f.dep} → ${f.arr} · ${f.date}`} onBack={onBack}>
+      <div style={{ padding:"16px 16px 100px" }}>
+        <div style={{ background:tint(C.yellow,0.07), border:`1px solid ${tint(C.yellow,0.25)}`, borderRadius:14, padding:"12px 16px", marginBottom:16, display:"flex", gap:10 }}>
+          <StatIcon id="bolt" color={C.yellow} size={18}/>
+          <div><div style={{ fontSize:13, fontWeight:700, color:C.yellow, marginBottom:2 }}>Move fast: seats on the next flights go quickly</div><div style={{ fontSize:12, color:C.soft }}>Rebook through the airline first: on the same ticket it's normally free when they cancel.</div></div>
+        </div>
+        {[
+          { icon:"ticket", title:`Rebook with ${f.airline}`, text:"Manage booking: accept the offered flight or pick another.", href:MANAGE_URLS[f.code], cta:"Open manage booking" },
+          { icon:"search", title:"See every flight on this route", text:`Same-day and next-day ${f.dep} → ${f.arr} options on Google Flights, to know what to ask for.`, href:gf, cta:"Search flights" },
+          { icon:"phone", title:"Call while you queue", text:"Agents at the transfer desk and on the phone work the same inventory. Try both.", href:null },
+        ].map(o=>(
+          <div key={o.title} style={{ background:C.card, borderRadius:16, border:`1px solid ${C.border}`, padding:16, marginBottom:12 }}>
+            <div style={{ display:"flex", gap:10, alignItems:"flex-start", marginBottom:o.href?12:0 }}>
+              <StatIcon id={o.icon} color={C.accent} size={20}/>
+              <div><div style={{ fontSize:15, fontWeight:800, color:C.text, marginBottom:3 }}>{o.title}</div><div style={{ fontSize:12, color:C.soft, lineHeight:1.5 }}>{o.text}</div></div>
+            </div>
+            {o.href&&<a href={o.href} target="_blank" rel="noreferrer" style={{ display:"block", textDecoration:"none", background:`linear-gradient(135deg,${C.accent},#007aaa)`, borderRadius:11, padding:"11px 0", textAlign:"center", color:"#000", fontWeight:800, fontSize:13 }}>{o.cta} →</a>}
+          </div>
+        ))}
+        {euRights && <div style={{ fontSize:12, color:C.soft, lineHeight:1.6, background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:"12px 14px" }}>
+          <b style={{ color:C.text }}>Your rights:</b> flights from Switzerland/EU, or on a Swiss/EU airline, fall under EU261-style rules: rebooking or a refund, meals and a hotel if you're stuck overnight, and possibly compensation. Keep receipts.
+        </div>}
+      </div>
+    </OverlayPage>
+  );
 }
 
+// ── Weather (live, free Open-Meteo; no key needed) ──
+function useAirportWeather(code) {
+  const [w, setW] = useState({ state:"loading" });
+  useEffect(() => {
+    let alive = true;
+    fetchAirportWeather(code).then(d => alive && setW(d ? { state:"ok", ...d } : { state:"error" }));
+    return () => { alive = false; };
+  }, [code]);
+  return w;
+}
+
+function WeatherScreen({ codes = ["MIA","TLV","ZRH"] }) {
+  const [sel, setSel] = useState(codes[0]);
+  const now = useNow();
+  const w = useAirportWeather(sel);
+  const ap = airport(sel);
+  return (
+    <div style={{ padding:"14px 14px 100px" }}>
+      <div style={{ display:"flex", gap:8, marginBottom:16 }}>
+        {codes.map(c=>(<div key={c} onClick={()=>setSel(c)} style={{ flex:1, background:c===sel?`linear-gradient(135deg,${C.accent},#007aaa)`:C.surface, border:`1px solid ${c===sel?C.accent:C.border}`, borderRadius:12, padding:"12px 0", textAlign:"center", cursor:"pointer" }}><div style={{ fontSize:18, fontWeight:800, color:c===sel?"#000":C.text, fontFamily:C.mono }}>{c}</div><div style={{ fontSize:9, color:c===sel?"#003355":C.muted }}>{airport(c)?.city}</div></div>))}
+      </div>
+      {w.state==="loading" && <div style={{ color:C.muted, fontSize:13, textAlign:"center", padding:30 }}>Loading live weather...</div>}
+      {w.state==="error" && <div style={{ color:C.soft, fontSize:13, textAlign:"center", padding:30 }}>Weather is unavailable right now. Try again in a minute.</div>}
+      {w.state==="ok" && <>
+        <div data-testid="weather-now" style={{ background:C.card, borderRadius:20, border:`1px solid ${C.border}`, padding:20, marginBottom:14 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:16 }}>
+            <StatIcon id={w.icon} color={C.accent} size={56}/>
+            <div style={{ flex:1 }}>
+              <div style={{ fontFamily:C.display, fontSize:48, color:C.text, lineHeight:1 }}>{w.tempF}°F</div>
+              <div style={{ fontSize:14, color:C.soft, marginTop:6 }}>{w.label} · {Math.round((w.tempF-32)*5/9)}°C</div>
+            </div>
+            <div style={{ textAlign:"right" }}>
+              <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:1 }}>LOCAL TIME</div>
+              <div style={{ fontSize:16, fontWeight:800, color:C.text, fontFamily:C.mono }}>{fmtClock(now, ap.tz)}</div>
+            </div>
+          </div>
+          <div style={{ display:"flex", gap:8, marginTop:16 }}>
+            {[["wind","WIND",`${w.windMph} mph`],["rain","HUMIDITY",`${w.humidity}%`],["clock","UPDATED","10 min"]].map(([i,l,val])=>(
+              <div key={l} style={{ flex:1, background:C.surface, borderRadius:10, padding:"10px", border:`1px solid ${C.border}`, textAlign:"center" }}>
+                <div style={{ display:"flex", justifyContent:"center", marginBottom:4 }}><StatIcon id={i} color={C.soft} size={16}/></div>
+                <div style={{ fontSize:9, color:C.muted, fontFamily:C.mono, letterSpacing:1 }}>{l}</div>
+                <div style={{ fontSize:13, fontWeight:700, color:C.text }}>{val}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10 }}>5-DAY FORECAST</div>
+        <div style={{ background:C.card, borderRadius:16, border:`1px solid ${C.border}`, overflow:"hidden" }}>
+          {w.daily.map((d,i)=>(
+            <div key={d.date} style={{ display:"flex", alignItems:"center", gap:12, padding:"11px 14px", borderTop:i?`1px solid ${C.border}`:"none" }}>
+              <div style={{ width:44, fontSize:13, fontWeight:700, color:C.text }}>{i===0?"Today":new Date(`${d.date}T12:00:00Z`).toLocaleDateString("en-US",{ weekday:"short", timeZone:"UTC" })}</div>
+              <StatIcon id={d.icon} color={C.accent} size={20}/>
+              <div style={{ flex:1, fontSize:12, color:C.soft }}>{d.label}</div>
+              <div style={{ fontSize:13, fontFamily:C.mono, color:C.text }}>{d.hiF}° <span style={{ color:C.muted }}>{d.loF}°</span></div>
+            </div>
+          ))}
+        </div>
+        <div style={{ fontSize:10, color:C.muted, marginTop:10 }}>Live data from Open-Meteo, updated every 10 minutes.</div>
+      </>}
+    </div>
+  );
+}
+
+// ── Airport conditions: live weather; delay/security are labelled typical estimates ──
+function AirportWxLine({ code }) {
+  const w = useAirportWeather(code);
+  if (w.state!=="ok") return <span style={{ color:C.muted }}>{w.state==="loading"?"Loading...":"Unavailable"}</span>;
+  return <span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><StatIcon id={w.icon} color={C.accent} size={14}/>{w.tempF}°F {w.label}</span>;
+}
+
+function AirportIntelligenceScreen({ onBack }) {
+  const now = useNow();
+  const rows = [
+    { code:"MIA", role:"Your home airport", security:"~25 min", tip:"Allow extra time on Sunday afternoons" },
+    { code:"TLV", role:"Your return departure", security:"~40 min", tip:"Israeli security questioning happens before check-in: arrive 3h early" },
+    { code:"ZRH", role:"Your connection", security:"~20 min", tip:"Miami flights leave from the E gates (non-Schengen): take the Skymetro and expect a re-screen" },
+  ];
+  return (
+    <OverlayPage testid="airport-intel" title="Airport conditions" sub="Live weather · security times are typical estimates" onBack={onBack}>
+      <div style={{ padding:"16px 16px 100px" }}>
+        {rows.map(r=>{ const ap = airport(r.code); return (
+          <div key={r.code} style={{ background:C.card, borderRadius:18, border:`1px solid ${C.border}`, padding:16, marginBottom:12 }}>
+            <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:12 }}>
+              <div style={{ width:52, height:52, borderRadius:14, background:tint(C.accent,0.08), border:`2px solid ${tint(C.accent,0.25)}`, display:"flex", alignItems:"center", justifyContent:"center" }}><span style={{ fontSize:16, fontWeight:800, color:C.accent, fontFamily:C.mono }}>{r.code}</span></div>
+              <div style={{ flex:1 }}><div style={{ fontSize:15, fontWeight:800, color:C.text }}>{ap.name}</div><div style={{ fontSize:12, color:C.soft }}>{ap.city} · {r.role}</div></div>
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:10 }}>
+              {[["WEATHER NOW",<AirportWxLine key="w" code={r.code}/>],["LOCAL TIME",fmtClock(now, ap.tz)],["TYPICAL SECURITY",r.security],["TIME ZONE",tzLabel(now, ap.tz)]].map(([l,val])=>(
+                <div key={l} style={{ background:C.surface, borderRadius:10, padding:"10px", border:`1px solid ${C.border}` }}><div style={{ fontSize:9, color:C.muted, fontFamily:C.mono, marginBottom:4, letterSpacing:1 }}>{l}</div><div style={{ fontSize:12, color:l==="TYPICAL SECURITY"?C.orange:C.text, fontWeight:600 }}>{val}</div></div>
+              ))}
+            </div>
+            <div style={{ fontSize:12, color:C.soft, display:"flex", gap:7 }}><StatIcon id="info" color={C.accent} size={14}/><span>{r.tip}</span></div>
+          </div>
+        ); })}
+        <div style={{ fontSize:10, color:C.muted }}>Live airport delay programs need the flight-data API (planned).</div>
+      </div>
+    </OverlayPage>
+  );
+}
+
+function ToolChips({ items }) {
+  return (
+    <div style={{ display:"flex", gap:8, overflowX:"auto", padding:"2px 0 14px" }}>
+      {items.map(([id,icon,text,fn])=>(
+        <div key={id} data-testid={`tool-${id}`} onClick={fn} style={{ flexShrink:0, display:"flex", alignItems:"center", gap:6, background:C.surface, border:`1px solid ${C.border}`, borderRadius:20, padding:"7px 12px", cursor:"pointer" }}>
+          <StatIcon id={icon} color={C.accent} size={14}/><span style={{ fontSize:12, color:C.soft, fontWeight:600, whiteSpace:"nowrap" }}>{text}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Main flights screen ──
+function FlightsScreen({ flights, getLive, getMeta, now, navIdx, homeAddress, stayAddress, prefs, withKids, onTap, onAdd, onEditPrefs, onCalendar, tools, liveStrip }) {
+  const phases = flights.map(f => ({ f, phase: flightPhase(f, getLive(f.id), now) }));
+  const upcoming = phases.filter(p => p.phase !== "completed").map(p => p.f);
+  const done = phases.filter(p => p.phase === "completed").map(p => p.f);
+  const next = upcoming.find(f => flightPhase(f, getLive(f.id), now) === "upcoming");
+  const nextInAir = upcoming.find(f => flightPhase(f, getLive(f.id), now) === "in-air");
+  const arrivalFocus = nextInAir || next;
+  // show the final destination of the journey (LX 064 into MIA, not the ZRH layover)
+  const arrF = (arrivalFocus && upcoming.find(f => f.conn?.from === arrivalFocus.id)) || arrivalFocus;
+  const [showDone, setShowDone] = useState(false);
+  const onwardCancelled = next && upcoming.find(f => f.conn?.from === next.id && getLive(f.id)?.status === "Cancelled");
+  const checkinFlights = upcoming.filter(f => checkinWindow(f, now).state !== "closed").slice(0, 2);
+  const totalKm = 22000;
+  return (
+    <div style={{ padding:"14px 16px 110px" }}>
+      {liveStrip}
+      <ToolChips items={tools}/>
+      <WhatChangedBanner flights={upcoming} getLive={getLive}/>
+      {next && <LeaveByCard f={next} live={getLive(next.id)} now={now} navIdx={navIdx} homeAddress={homeAddress} stayAddress={stayAddress} prefs={prefs} onEdit={onEditPrefs} warning={onwardCancelled ? `Your connection ${onwardCancelled.iata} is cancelled. Rebook it before you leave for the airport.` : null}/>}
+      <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, margin:"6px 0 10px" }}>{upcoming.length?"UPCOMING":"NO UPCOMING FLIGHTS"}</div>
+      {upcoming.map(f=>{
+        const inbound = f.conn?.from && flights.find(x=>x.id===f.conn.from);
+        return (
+          <div key={f.id}>
+            {inbound && upcoming.includes(inbound) && <ConnectionCard inbound={inbound} outbound={f} liveIn={getLive(inbound.id)} liveOut={getLive(f.id)} withKids={withKids}/>}
+            <FlightCard f={f} live={getLive(f.id)} liveMeta={getMeta(f.id)} now={now} onTap={onTap}/>
+          </div>
+        );
+      })}
+      {arrF && <ArrivalCard f={arrF} live={getLive(arrF.id)} now={now}/>}
+      {checkinFlights.map(f=><CheckinCard key={f.id} f={f} now={now} onCalendar={onCalendar}/>)}
+      <div onClick={onCalendar} data-testid="ics-trip" style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:8, background:C.surface, border:`1px solid ${C.border}`, borderRadius:14, padding:"13px 0", cursor:"pointer", marginBottom:14 }}>
+        <StatIcon id="calendar" color={C.accent} size={18}/><span style={{ fontSize:13, fontWeight:700, color:C.text }}>Add trip to calendar (.ics with alerts)</span>
+      </div>
+      {done.length>0 && <>
+        <div onClick={()=>setShowDone(s=>!s)} style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, margin:"6px 0 10px", cursor:"pointer" }}>COMPLETED ({done.length}) {showDone?"▲":"▼"}</div>
+        {showDone && done.map(f=><FlightCard key={f.id} f={f} live={getLive(f.id)} liveMeta={getMeta(f.id)} now={now} onTap={onTap}/>)}
+      </>}
+      <div style={{ display:"flex", alignItems:"center", gap:12, background:tint(C.green,0.06), border:`1px solid ${tint(C.green,0.2)}`, borderRadius:14, padding:"12px 14px", marginBottom:14 }}>
+        <StatIcon id="leaf" color={C.green} size={20}/>
+        <div style={{ flex:1 }}><div style={{ fontSize:12, fontWeight:700, color:C.green }}>Trip footprint (estimate)</div><div style={{ fontSize:11, color:C.soft }}>~{totalKm.toLocaleString()} km flown · roughly 2.1 t CO₂ per economy passenger</div></div>
+      </div>
+      <div data-testid="add-flight-cta" onClick={onAdd} style={{ background:C.card, border:`1.5px dashed ${C.border}`, borderRadius:16, padding:"16px", textAlign:"center", cursor:"pointer", color:C.soft, fontSize:14, fontWeight:600 }}>+ Add a flight</div>
+    </div>
+  );
+}
+
+function SettingsModal({ onClose, isDark, setIsDark, homeAddress, setHomeAddress, stayAddress, setStayAddress, prefs, setPrefs, withKids, setWithKids, accountType, setAccountType, navIdx, setNavIdx, demoClock, setDemoClock, scenario, setScenario, onPlans }) {
+  const [addr, setAddr] = useState(homeAddress);
+  const [stay, setStay] = useState(stayAddress);
+  const [drive, setDrive] = useState(String(prefs.driveMins));
+  const [votes, setVotes] = usePersistentState("votes", {});
+  const [alerts, setAlerts] = useState({ delays:true, cancels:true, gates:true, boarding:true, checkin:true });
+  const [cancelChannels, setCancelChannels] = useState({ sms:true, email:true, push:true });
+  const [saved, setSaved] = useState(false);
+  function save() { setHomeAddress(addr); setStayAddress(stay); const d = parseInt(drive,10); if (d>0 && d<300) setPrefs(p=>({ ...p, driveMins:d })); setSaved(true); setTimeout(()=>setSaved(false), 2000); }
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", zIndex:60, display:"flex", flexDirection:"column", justifyContent:"flex-end" }} onClick={onClose}>
+      <div data-testid="settings" onClick={e=>e.stopPropagation()} style={{ background:C.surface, borderTopLeftRadius:24, borderTopRightRadius:24, padding:"20px 20px 48px", border:`1px solid ${C.border}`, maxWidth:480, margin:"0 auto", width:"100%", maxHeight:"85vh", overflowY:"auto" }}>
+        <div style={{ width:36, height:4, background:C.border, borderRadius:2, margin:"0 auto 18px" }}/>
+        <div style={{ fontSize:20, fontWeight:800, color:C.text, marginBottom:20 }}>Settings</div>
+        <div style={{ marginBottom:20 }}>
+          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10 }}>ACCOUNT TYPE</div>
+          <div style={{ display:"flex", gap:8 }}>
+            {[["personal","user","Personal"],["pro","star","Pro"],["corporate","building","Corporate"]].map(([id,icon,label])=>(
+              <div key={id} onClick={()=>setAccountType(id)} style={{ flex:1, background:accountType===id?`${id==="corporate"?C.purple:C.accent}18`:C.card, border:`2px solid ${accountType===id?(id==="corporate"?C.purple:C.accent):C.border}`, borderRadius:12, padding:"12px 6px", textAlign:"center", cursor:"pointer" }}>
+                <div style={{ display:"flex", justifyContent:"center", marginBottom:6 }}><StatIcon id={icon} color={accountType===id?(id==="corporate"?C.purple:C.accent):C.soft} size={20}/></div>
+                <div style={{ fontSize:11, fontWeight:700, color:accountType===id?(id==="corporate"?C.purple:C.accent):C.soft }}>{label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div style={{ marginBottom:20 }}>
+          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10 }}>APPEARANCE</div>
+          <div style={{ display:"flex", gap:8 }}>
+            {[["moon","Dark Mode",true,"#04070e"],["sun","Light Mode",false,"#f0f4f8"]].map(([icon,label,dark,bg])=>(
+              <div key={label} onClick={()=>setIsDark(dark)} style={{ flex:1, background:isDark===dark?`${C.accent}18`:C.card, border:`2px solid ${isDark===dark?C.accent:C.border}`, borderRadius:14, padding:"14px 10px", textAlign:"center", cursor:"pointer" }}>
+                <div style={{ width:40, height:28, borderRadius:8, background:bg, border:`1px solid ${C.border}`, margin:"0 auto 8px", display:"flex", alignItems:"center", justifyContent:"center" }}><StatIcon id={icon} color={isDark===dark?C.accent:C.soft} size={15}/></div>
+                <div style={{ fontSize:12, fontWeight:700, color:isDark===dark?C.accent:C.soft }}>{label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div style={{ marginBottom:20 }}>
+          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10 }}>HOME ADDRESS</div>
+          <input value={addr} onChange={e=>setAddr(e.target.value)} placeholder="123 Main St, Miami, FL" style={{ width:"100%", background:C.card, border:`1.5px solid ${addr?C.accent+"60":C.border}`, borderRadius:12, padding:"13px 14px", color:C.text, fontSize:14, outline:"none", boxSizing:"border-box" }}/>
+        </div>
+        <div style={{ marginBottom:20 }}>
+          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10 }}>WHERE YOU'RE STAYING (AWAY FROM HOME)</div>
+          <input value={stay} onChange={e=>setStay(e.target.value)} placeholder="Hotel or family address, e.g. Ra'anana" style={{ width:"100%", background:C.card, border:`1.5px solid ${stay?C.accent+"60":C.border}`, borderRadius:12, padding:"13px 14px", color:C.text, fontSize:14, outline:"none", boxSizing:"border-box" }}/>
+          <div style={{ fontSize:11, color:C.muted, marginTop:6 }}>Used for leave-by times when you fly home from somewhere else.</div>
+        </div>
+        <div style={{ marginBottom:20 }}>
+          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10 }}>LEAVE-BY PLANNING</div>
+          <div style={{ display:"flex", gap:10, alignItems:"center", marginBottom:10 }}>
+            <div style={{ flex:1, fontSize:13, color:C.text }}>Drive to the airport (minutes)</div>
+            <input data-testid="drive-mins" inputMode="numeric" value={drive} onChange={e=>setDrive(e.target.value.replace(/\D/g,""))} style={{ width:70, background:C.card, border:`1.5px solid ${C.border}`, borderRadius:10, padding:"9px 10px", color:C.text, fontSize:14, textAlign:"center", fontFamily:C.mono }}/>
+          </div>
+          <div style={{ display:"flex", gap:10, alignItems:"center" }}>
+            <div style={{ flex:1 }}><div style={{ fontSize:13, color:C.text }}>Travelling with kids</div><div style={{ fontSize:11, color:C.muted }}>Adds 10 min to connection planning</div></div>
+            <div onClick={()=>setWithKids(k=>!k)} style={{ width:44, height:26, borderRadius:13, background:withKids?C.accent:"#2a3f5f", position:"relative", cursor:"pointer", flexShrink:0 }}><div style={{ width:20, height:20, borderRadius:10, background:"#fff", position:"absolute", top:3, left:withKids?21:3, transition:"left 0.2s" }}/></div>
+          </div>
+        </div>
+        <div style={{ marginBottom:20 }}>
+          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10 }}>HOW YOU GET TO THE AIRPORT</div>
+          <div style={{ fontSize:10, color:C.muted, fontWeight:700, letterSpacing:1, marginBottom:7 }}>DRIVING</div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:12 }}>
+            {NAV_APPS.map((a,i)=>a.mode==="drive"&&(
+              <div key={a.id} onClick={()=>setNavIdx(i)} style={{ background:navIdx===i?`${a.color}18`:C.card, border:`2px solid ${navIdx===i?a.color:C.border}`, borderRadius:12, padding:"12px 0", textAlign:"center", cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center" }}>
+                <NavLogo app={a} size={24}/>
+                <div style={{ fontSize:11, fontWeight:700, color:navIdx===i?a.color:C.soft, marginTop:4 }}>{a.label}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ fontSize:10, color:C.muted, fontWeight:700, letterSpacing:1, marginBottom:7 }}>PUBLIC TRANSIT</div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8 }}>
+            {NAV_APPS.map((a,i)=>a.mode==="transit"&&(
+              <div key={a.id} onClick={()=>setNavIdx(i)} style={{ background:navIdx===i?`${a.color}18`:C.card, border:`2px solid ${navIdx===i?a.color:C.border}`, borderRadius:12, padding:"12px 0", textAlign:"center", cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center" }}>
+                <NavLogo app={a} size={24}/>
+                <div style={{ fontSize:10, fontWeight:700, color:navIdx===i?a.color:C.soft, marginTop:4 }}>{a.label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div style={{ marginBottom:20 }}>
+          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10 }}>CANCELLATION ALERTS</div>
+          <div style={{ fontSize:12, color:C.soft, marginBottom:12, lineHeight:1.5 }}>How you'd like to be notified the moment a flight is cancelled — often before the airline tells you.</div>
+          {[["sms","SMS Text Message","Instant text to your phone"],["email","Email","Full details + alternative flights"],["push","Push Notification","App notification on your device"]].map(([key,title,desc])=>(
+            <div key={key} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 0", borderBottom:`1px solid ${C.border}` }}>
+              <div style={{ flex:1 }}>
+                <div style={{ fontSize:13, fontWeight:600, color:C.text, marginBottom:2 }}>{title}</div>
+                <div style={{ fontSize:11, color:C.muted }}>{desc}</div>
+              </div>
+              <div onClick={()=>setCancelChannels(c=>({...c,[key]:!c[key]}))} style={{ width:44, height:26, borderRadius:13, background:cancelChannels[key]?C.red:"#2a3f5f", position:"relative", cursor:"pointer", flexShrink:0 }}>
+                <div style={{ width:20, height:20, borderRadius:10, background:"#fff", position:"absolute", top:3, left:cancelChannels[key]?21:3, transition:"left 0.2s" }}/>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div style={{ marginBottom:24 }}>
+          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10 }}>ALERT PREFERENCES</div>
+          {[["delays","clock","Delay alerts"],["cancels","alert","Cancellation alerts"],["gates","door","Gate changes"],["boarding","plane","Boarding alerts"],["checkin","ticket","Check-in reminder"]].map(([key,icon,title])=>(
+            <div key={key} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 0", borderBottom:`1px solid ${C.border}` }}>
+              <StatIcon id={icon} color={C.soft} size={19}/>
+              <div style={{ flex:1, fontSize:13, fontWeight:600, color:C.text }}>{title}</div>
+              <div onClick={()=>setAlerts(a=>({...a,[key]:!a[key]}))} style={{ width:44, height:26, borderRadius:13, background:alerts[key]?C.accent:"#2a3f5f", position:"relative", cursor:"pointer", flexShrink:0 }}>
+                <div style={{ width:20, height:20, borderRadius:10, background:"#fff", position:"absolute", top:3, left:alerts[key]?21:3, transition:"left 0.2s" }}/>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div style={{ marginBottom:20 }}>
+          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10 }}>PLAN & PRICING</div>
+          <div data-testid="open-plans" onClick={onPlans} style={{ display:"flex", alignItems:"center", gap:12, background:C.card, border:`1px solid ${C.border}`, borderRadius:12, padding:"13px 14px", cursor:"pointer" }}>
+            <StatIcon id="star" color={C.accent} size={18}/>
+            <div style={{ flex:1 }}><div style={{ fontSize:13, fontWeight:700, color:C.text }}>{accountType==="personal"?"Free plan":accountType==="pro"?"Pro":"Corporate"}</div><div style={{ fontSize:11, color:C.muted }}>Compare Free, Pro and Corporate</div></div>
+            <span style={{ color:C.accent, fontSize:13 }}>View →</span>
+          </div>
+        </div>
+        <div style={{ marginBottom:20 }}>
+          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:6 }}>WHAT WOULD YOU LIKE TO SEE NEXT?</div>
+          {[["map","Live flight map"],["phone","SMS alerts"],["bag","Bag tracking"],["building","Hotel bookings"],["drive","Rental car"],["money","Points & miles"],["chat","AI trip assistant"],["globe","Offline mode"]].map(([icon,title])=>(
+            <div key={title} style={{ display:"flex", alignItems:"center", gap:12, padding:"9px 0", borderBottom:`1px solid ${C.border}` }}>
+              <StatIcon id={icon} color={C.soft} size={18}/>
+              <div style={{ flex:1, fontSize:13, fontWeight:600, color:C.text }}>{title}</div>
+              <div onClick={()=>setVotes(v=>({ ...v, [title]:!v[title] }))} style={{ background:votes[title]?"rgba(0,232,122,0.12)":C.surface, border:`1.5px solid ${votes[title]?"rgba(0,232,122,0.4)":C.border}`, borderRadius:20, padding:"5px 12px", cursor:"pointer", display:"flex", alignItems:"center", gap:5 }}>
+                <StatIcon id={votes[title]?"heartFill":"heart"} color={votes[title]?C.green:C.soft} size={12}/>
+                <span style={{ fontSize:11, fontWeight:700, color:votes[title]?C.green:C.soft }}>{votes[title]?"Voted":"Vote"}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div style={{ marginBottom:24, background:tint("#ffc800",0.05), border:`1px solid ${tint("#ffc800",0.25)}`, borderRadius:14, padding:"14px" }}>
+          <div style={{ fontSize:11, color:C.yellow, fontFamily:C.mono, letterSpacing:2, marginBottom:10 }}>DEMO</div>
+          <div style={{ display:"flex", gap:10, alignItems:"center", marginBottom:12 }}>
+            <div style={{ flex:1 }}><div style={{ fontSize:13, color:C.text }}>Replay the travel day</div><div style={{ fontSize:11, color:C.muted }}>This trip's dates have passed. The demo clock starts before LY 347 leaves Tel Aviv.</div></div>
+            <div data-testid="demo-toggle" onClick={()=>setDemoClock(d=>!d)} style={{ width:44, height:26, borderRadius:13, background:demoClock?C.yellow:"#2a3f5f", position:"relative", cursor:"pointer", flexShrink:0 }}><div style={{ width:20, height:20, borderRadius:10, background:"#fff", position:"absolute", top:3, left:demoClock?21:3, transition:"left 0.2s" }}/></div>
+          </div>
+          <div style={{ fontSize:13, color:C.text, marginBottom:6 }}>Simulate live data</div>
+          <select data-testid="scenario" value={scenario} onChange={e=>setScenario(e.target.value)} style={{ width:"100%", background:C.card, border:`1.5px solid ${C.border}`, borderRadius:10, padding:"10px", color:C.text, fontSize:13 }}>
+            {MOCK_SCENARIOS.map(m=><option key={m.id} value={m.id}>{m.label}</option>)}
+          </select>
+        </div>
+        <div data-testid="settings-save" onClick={save} style={{ background:saved?C.green:`linear-gradient(135deg,${C.accent},#007aaa)`, borderRadius:14, padding:"15px 0", textAlign:"center", fontWeight:800, fontSize:15, color:"#000", cursor:"pointer" }}>{saved?"Saved":"Save Settings"}</div>
+      </div>
+    </div>
+  );
+}
 function sc(s) {
   if(s==="On Time"||s==="Scheduled") return { c:"#00e87a", bg:"rgba(0,232,122,0.1)", br:"rgba(0,232,122,0.25)" };
   if(s==="Departed"||s==="In Air") return { c:"#00c8f0", bg:"rgba(0,200,240,0.1)", br:"rgba(0,200,240,0.25)" };
@@ -275,16 +1003,24 @@ function sc(s) {
 }
 
 function AirlineLogo({ code, size=26 }) {
-  const [err, setErr] = useState(false);
-  const colors = { AA:"#0078D2", UA:"#005DAA", DL:"#C01933", LA:"#E31837", H2:"#FF6B00", BA:"#075AAA", SW:"#304CB2" };
-  if (err) return <div style={{ width:size, height:size, borderRadius:7, background:colors[code]||"#334", display:"flex", alignItems:"center", justifyContent:"center", fontSize:size*0.38, fontWeight:800, color:"#fff", fontFamily:C.mono, flexShrink:0 }}>{code}</div>;
-  return <img src={`https://airhex.com/images/airline-logos/${code.toLowerCase()}.png`} alt={code} onError={()=>setErr(true)} style={{ width:size, height:size, borderRadius:7, objectFit:"contain", background:"rgba(255,255,255,0.05)", padding:2, flexShrink:0 }}/>;
+  // Local monogram in the airline's brand colour (no third-party image requests)
+  const colors = { AA:"#0078D2", UA:"#005DAA", DL:"#C01933", LA:"#E31837", H2:"#FF6B00", BA:"#075AAA", SW:"#304CB2", LY:"#003399", LX:"#d52b1e" };
+  return <div aria-label={code} style={{ width:size, height:size, borderRadius:7, background:colors[code]||"#334", display:"flex", alignItems:"center", justifyContent:"center", fontSize:size*0.38, fontWeight:800, color:"#fff", fontFamily:C.mono, flexShrink:0 }}>{code}</div>;
 }
 
 function NavLogo({ app, size=28 }) {
-  const [err, setErr] = useState(false);
-  if (err) return <span style={{ fontSize:size*0.7 }}>🗺️</span>;
-  return <img src={app.logo} alt={app.label} onError={()=>setErr(true)} style={{ width:size, height:size, objectFit:"contain", borderRadius:size*0.2, flexShrink:0 }}/>;
+  // Self-contained badge: app's brand color + first letter. No external images to break.
+  const letter = app.label.replace("Google ","G·").charAt(0).toUpperCase();
+  const mark = { waze:"W", google:"G", apple:"", google_transit:"G", citymapper:"C", moovit:"M" }[app.id] ?? letter;
+  return (
+    <div style={{ width:size, height:size, borderRadius:size*0.28, background:app.color, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, boxShadow:`0 1px 4px ${app.color}55` }}>
+      {app.id==="apple"
+        ? <svg width={size*0.6} height={size*0.6} viewBox="0 0 24 24" fill="none"><path d="M12 3l7 4v6c0 5-3.5 7-7 8-3.5-1-7-3-7-8V7l7-4z" fill="#fff"/><path d="M9 12l2 2 4-4" stroke={app.color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+        : app.mode==="transit"
+          ? <svg width={size*0.62} height={size*0.62} viewBox="0 0 24 24" fill="none"><rect x="6" y="3" width="12" height="14" rx="2.5" stroke="#fff" strokeWidth="1.8"/><path d="M6 11h12" stroke="#fff" strokeWidth="1.8"/><circle cx="9" cy="14" r="1.1" fill="#fff"/><circle cx="15" cy="14" r="1.1" fill="#fff"/><path d="M8 17l-1.5 3M16 17l1.5 3" stroke="#fff" strokeWidth="1.8" strokeLinecap="round"/></svg>
+          : <span style={{ fontSize:size*0.5, fontWeight:900, color:"#fff", fontFamily:"Arial, sans-serif" }}>{mark}</span>}
+    </div>
+  );
 }
 
 function StatusPill({ status }) {
@@ -292,272 +1028,105 @@ function StatusPill({ status }) {
   return <span style={{ background:s.bg, border:`1px solid ${s.br}`, borderRadius:20, padding:"4px 12px", fontSize:11, color:s.c, fontWeight:700, fontFamily:C.mono, whiteSpace:"nowrap" }}>{status}</span>;
 }
 
-function Arc({ progress=0, color="#00c8f0" }) {
-  const w=200, h=54, cx=w/2;
-  const pct = progress/100;
-  const px = progress===0 ? cx : 16 + pct*(w-32);
-  const py = progress===0 ? h-28 : h-10 - Math.sin(pct*Math.PI)*24;
-  return (
-    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} style={{ overflow:"visible", display:"block", margin:"0 auto" }}>
-      <path d={`M 16 ${h-8} Q ${cx} ${h-50} ${w-16} ${h-8}`} fill="none" stroke="#2a4060" strokeWidth="1.5" strokeDasharray="4 5"/>
-      <circle cx="16" cy={h-8} r="4" fill="#0d1525" stroke={color} strokeWidth="2"/>
-      <circle cx={w-16} cy={h-8} r="4" fill="#0d1525" stroke={color} strokeWidth="2"/>
-      <circle cx={px} cy={py} r="14" fill={color} opacity="0.25"/>
-      <circle cx={px} cy={py} r="14" fill="none" stroke={color} strokeWidth="2.5"/>
-      <text x={px} y={py+1} fontSize="15" textAnchor="middle" dominantBaseline="middle" fill="#ffffff" fontWeight="bold">✈</text>
-    </svg>
-  );
+function StatIcon({ id, color="#00c8f0", size=19 }) {
+  const sw = 1.5;
+  const icons = {
+    drive: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M5 11l1.5-4.5A2 2 0 018.4 5h7.2a2 2 0 011.9 1.5L19 11M5 11h14M5 11v6m14-6v6M5 17h14M6.5 17v1.5M17.5 17v1.5" stroke={color} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round"/><circle cx="7.5" cy="14" r="0.9" fill={color}/><circle cx="16.5" cy="14" r="0.9" fill={color}/></svg>),
+    traffic: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><rect x="8" y="3" width="8" height="16" rx="3" stroke={color} strokeWidth={sw}/><circle cx="12" cy="7" r="1.4" fill={color}/><circle cx="12" cy="11" r="1.4" fill={color} opacity="0.45"/><circle cx="12" cy="15" r="1.4" fill={color} opacity="0.45"/><path d="M12 19v2" stroke={color} strokeWidth={sw} strokeLinecap="round"/></svg>),
+    dist: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M12 21c4-4.5 6-8 6-11a6 6 0 10-12 0c0 3 2 6.5 6 11z" stroke={color} strokeWidth={sw} strokeLinejoin="round"/><circle cx="12" cy="10" r="2.2" stroke={color} strokeWidth={sw}/></svg>),
+    buffer: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke={color} strokeWidth={sw}/><path d="M12 7v5l3.5 2" stroke={color} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round"/></svg>),
+    security: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6l7-3z" stroke={color} strokeWidth={sw} strokeLinejoin="round"/><path d="M9 12l2 2 4-4" stroke={color} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round"/></svg>),
+    sun: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="4.5" stroke={color} strokeWidth={sw}/><path d="M12 2.5v2.5M12 19v2.5M2.5 12h2.5M19 12h2.5M5 5l1.8 1.8M17.2 17.2L19 19M5 19l1.8-1.8M17.2 6.8L19 5" stroke={color} strokeWidth={sw} strokeLinecap="round"/></svg>),
+    cloud: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M7 18a4 4 0 01-.5-7.97A5.5 5.5 0 0117.5 11 3.5 3.5 0 0117 18H7z" stroke={color} strokeWidth={sw} strokeLinejoin="round"/></svg>),
+    partly: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><circle cx="8" cy="8" r="3" stroke={color} strokeWidth={sw}/><path d="M8 2.5v1.5M2.5 8h1.5M4.2 4.2l1 1M11.8 4.2l-1 1" stroke={color} strokeWidth={sw} strokeLinecap="round"/><path d="M9 19a3.5 3.5 0 01-.4-6.98A4.5 4.5 0 0117.5 13 3 3 0 0117 19H9z" stroke={color} strokeWidth={sw} strokeLinejoin="round"/></svg>),
+    rain: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M7 15a4 4 0 01-.5-7.97A5.5 5.5 0 0117.5 8 3.5 3.5 0 0117 15H7z" stroke={color} strokeWidth={sw} strokeLinejoin="round"/><path d="M8 18l-1 2M12 18l-1 2M16 18l-1 2" stroke={color} strokeWidth={sw} strokeLinecap="round"/></svg>),
+    storm: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M7 14a4 4 0 01-.5-7.97A5.5 5.5 0 0117.5 7 3.5 3.5 0 0117 14H7z" stroke={color} strokeWidth={sw} strokeLinejoin="round"/><path d="M12 15l-2 3h3l-2 3" stroke={color} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round"/></svg>),
+    snow: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M7 14a4 4 0 01-.5-7.97A5.5 5.5 0 0117.5 7 3.5 3.5 0 0117 14H7z" stroke={color} strokeWidth={sw} strokeLinejoin="round"/><circle cx="8" cy="18.5" r="0.7" fill={color}/><circle cx="12" cy="19.5" r="0.7" fill={color}/><circle cx="16" cy="18.5" r="0.7" fill={color}/></svg>),
+    fog: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M7 12a4 4 0 01-.5-7.97A5.5 5.5 0 0117.5 5 3.5 3.5 0 0117 12H7z" stroke={color} strokeWidth={sw} strokeLinejoin="round"/><path d="M5 16h14M7 19h10" stroke={color} strokeWidth={sw} strokeLinecap="round"/></svg>),
+    home: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M4 11l8-6 8 6M6 9.5V19a1 1 0 001 1h3v-5h4v5h3a1 1 0 001-1V9.5" stroke={color} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round"/></svg>),
+    ticket: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M3 8a2 2 0 012-2h14a2 2 0 012 2v1.5a2 2 0 000 5V16a2 2 0 01-2 2H5a2 2 0 01-2-2v-1.5a2 2 0 000-5V8z" stroke={color} strokeWidth={sw} strokeLinejoin="round"/><path d="M14 6v12" stroke={color} strokeWidth={sw} strokeDasharray="2 2"/></svg>),
+    bell: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M12 3a6 6 0 00-6 6v4l-1.5 2v1h15v-1L18 13V9a6 6 0 00-6-6z" stroke={color} strokeWidth={sw} strokeLinejoin="round"/><path d="M10 19a2 2 0 004 0" stroke={color} strokeWidth={sw}/></svg>),
+    leaf: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M5 19c0-8 6-13 14-13 0 8-5 14-13 14 0-4 2-7 6-9" stroke={color} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round"/></svg>),
+    alert: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M12 3L2 20h20L12 3z" stroke={color} strokeWidth={sw} strokeLinejoin="round"/><path d="M12 10v4" stroke={color} strokeWidth={sw} strokeLinecap="round"/><circle cx="12" cy="17" r="0.6" fill={color}/></svg>),
+    warning: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke={color} strokeWidth={sw}/><path d="M12 7v5" stroke={color} strokeWidth={sw} strokeLinecap="round"/><circle cx="12" cy="16" r="0.6" fill={color}/></svg>),
+    plane: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M21 16v-1.5l-7-4.5V5a1.5 1.5 0 00-3 0v5l-7 4.5V16l7-2v4l-1.8 1.3V20l3.3-.9 3.3.9v-1.2L14 18v-4l7 2z" stroke={color} strokeWidth={sw} strokeLinejoin="round"/></svg>),
+    planeDepart: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M3 18h18" stroke={color} strokeWidth={sw} strokeLinecap="round"/><path d="M4 14l3 1 6-1 7-2.2a1.4 1.4 0 00-.5-2.7l-2.6.4-4-4.2-1.8.5 2.2 4.3-3.4.6L6.5 9l-1.6.5L6 13l-2 .5V14z" stroke={color} strokeWidth={sw} strokeLinejoin="round"/></svg>),
+    planeArrive: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M3 19h18" stroke={color} strokeWidth={sw} strokeLinecap="round"/><path d="M5 13l2.6 1.6 6 1.4 7.2 1.4a1.4 1.4 0 00.6-2.7l-2.4-1-2-5.5-1.8-.4.6 4.7-3.3-.8L9.7 8 8 7.8l.6 3.6-2.4-.8L5 11.4V13z" stroke={color} strokeWidth={sw} strokeLinejoin="round"/></svg>),
+    clock: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke={color} strokeWidth={sw}/><path d="M12 7v5l3.5 2" stroke={color} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round"/></svg>),
+    check: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke={color} strokeWidth={sw}/><path d="M8 12.5l2.5 2.5L16 9" stroke={color} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round"/></svg>),
+    cross: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke={color} strokeWidth={sw}/><path d="M9 9l6 6M15 9l-6 6" stroke={color} strokeWidth={sw} strokeLinecap="round"/></svg>),
+    link: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M9 15l6-6" stroke={color} strokeWidth={sw} strokeLinecap="round"/><path d="M10.5 6.5l1-1a3.5 3.5 0 015 5l-2 2a3.5 3.5 0 01-5 0" stroke={color} strokeWidth={sw} strokeLinecap="round"/><path d="M13.5 17.5l-1 1a3.5 3.5 0 01-5-5l2-2a3.5 3.5 0 015 0" stroke={color} strokeWidth={sw} strokeLinecap="round"/></svg>),
+    money: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke={color} strokeWidth={sw}/><path d="M12 7v10M14.5 9.5c0-1.1-1.1-2-2.5-2s-2.5.9-2.5 2 1.1 2 2.5 2 2.5.9 2.5 2-1.1 2-2.5 2-2.5-.9-2.5-2" stroke={color} strokeWidth={sw} strokeLinecap="round"/></svg>),
+    globe: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke={color} strokeWidth={sw}/><path d="M3 12h18M12 3c2.5 2.5 2.5 15 0 18M12 3c-2.5 2.5-2.5 15 0 18" stroke={color} strokeWidth={sw}/></svg>),
+    search: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="6" stroke={color} strokeWidth={sw}/><path d="M15.5 15.5L20 20" stroke={color} strokeWidth={sw} strokeLinecap="round"/></svg>),
+    email: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><rect x="3" y="5" width="18" height="14" rx="2" stroke={color} strokeWidth={sw}/><path d="M3 7l9 6 9-6" stroke={color} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round"/></svg>),
+    chat: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M4 5h16a1 1 0 011 1v9a1 1 0 01-1 1H9l-4 4v-4H4a1 1 0 01-1-1V6a1 1 0 011-1z" stroke={color} strokeWidth={sw} strokeLinejoin="round"/></svg>),
+    star: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M12 3l2.6 5.6 6 .8-4.4 4.2 1.1 6L12 16.9 6.7 19.6l1.1-6L3.4 9.4l6-.8L12 3z" stroke={color} strokeWidth={sw} strokeLinejoin="round"/></svg>),
+    building: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><rect x="5" y="3" width="14" height="18" rx="1" stroke={color} strokeWidth={sw}/><path d="M9 7h2M13 7h2M9 11h2M13 11h2M9 15h2M13 15h2M10 21v-3h4v3" stroke={color} strokeWidth={sw} strokeLinecap="round"/></svg>),
+    moon: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M20 14a8 8 0 01-10-10 8 8 0 1010 10z" stroke={color} strokeWidth={sw} strokeLinejoin="round"/></svg>),
+    user: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="4" stroke={color} strokeWidth={sw}/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" stroke={color} strokeWidth={sw} strokeLinecap="round"/></svg>),
+    door: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M6 3h9a1 1 0 011 1v16a1 1 0 01-1 1H6V3z" stroke={color} strokeWidth={sw} strokeLinejoin="round"/><circle cx="12.5" cy="12" r="0.8" fill={color}/></svg>),
+    phone: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M4 4h4l1.5 5-2 1.5a11 11 0 005 5L18 13l5 1.5V19a2 2 0 01-2 2A16 16 0 014 4z" stroke={color} strokeWidth={sw} strokeLinejoin="round"/></svg>),
+    receipt: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M6 3h12v18l-2-1.2-2 1.2-2-1.2-2 1.2-2-1.2L6 21V3z" stroke={color} strokeWidth={sw} strokeLinejoin="round"/><path d="M9 8h6M9 12h6" stroke={color} strokeWidth={sw} strokeLinecap="round"/></svg>),
+    pin: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M12 21c4-4.5 6-8 6-11a6 6 0 10-12 0c0 3 2 6.5 6 11z" stroke={color} strokeWidth={sw} strokeLinejoin="round"/><circle cx="12" cy="10" r="2.2" stroke={color} strokeWidth={sw}/></svg>),
+    eye: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z" stroke={color} strokeWidth={sw} strokeLinejoin="round"/><circle cx="12" cy="12" r="2.5" stroke={color} strokeWidth={sw}/></svg>),
+    bolt: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M13 3L5 13h5l-1 8 8-10h-5l1-8z" stroke={color} strokeWidth={sw} strokeLinejoin="round"/></svg>),
+    satellite: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3" stroke={color} strokeWidth={sw}/><path d="M5 12a7 7 0 017-7M5 16a11 11 0 0111-11" stroke={color} strokeWidth={sw} strokeLinecap="round"/></svg>),
+    edit: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M4 20h4L18 10l-4-4L4 16v4z" stroke={color} strokeWidth={sw} strokeLinejoin="round"/><path d="M14 6l4 4" stroke={color} strokeWidth={sw}/></svg>),
+    hourglass: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M7 4h10M7 20h10M8 4c0 5 8 5 8 0M8 20c0-5 8-5 8 0" stroke={color} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round"/></svg>),
+    walk: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><circle cx="13" cy="4.5" r="1.8" stroke={color} strokeWidth={sw}/><path d="M13 8l-2 4 2 2v6M13 12l3 1M11 12l-2 5M11 12V9" stroke={color} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round"/></svg>),
+    refresh: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M4 12a8 8 0 0114-5l2 2M20 12a8 8 0 01-14 5l-2-2" stroke={color} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round"/><path d="M20 4v5h-5M4 20v-5h5" stroke={color} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round"/></svg>),
+    trophy: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M7 4h10v4a5 5 0 01-10 0V4zM7 6H4v1a3 3 0 003 3M17 6h3v1a3 3 0 01-3 3M10 14v3M14 14v3M8 20h8" stroke={color} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round"/></svg>),
+    briefcase: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><rect x="3" y="7" width="18" height="13" rx="2" stroke={color} strokeWidth={sw}/><path d="M8 7V5a2 2 0 012-2h4a2 2 0 012 2v2" stroke={color} strokeWidth={sw}/></svg>),
+    medal: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><circle cx="12" cy="14" r="6" stroke={color} strokeWidth={sw}/><path d="M9 8L7 3h10l-2 5" stroke={color} strokeWidth={sw} strokeLinejoin="round"/><path d="M12 11.5l1 2 2 .2-1.5 1.4.4 2-1.9-1-1.9 1 .4-2L9 13.7l2-.2 1-2z" stroke={color} strokeWidth="1" strokeLinejoin="round"/></svg>),
+    bank: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M3 9l9-5 9 5M5 9v8M9 9v8M15 9v8M19 9v8M3 20h18" stroke={color} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round"/></svg>),
+    fire: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M12 3c1 3 4 4 4 8a4 4 0 01-8 0c0-1 .5-2 1-2.5C8 11 7 13 7 15a5 5 0 0010 0c0-5-4-7-5-12z" stroke={color} strokeWidth={sw} strokeLinejoin="round"/></svg>),
+    lock: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><rect x="5" y="10" width="14" height="10" rx="2" stroke={color} strokeWidth={sw}/><path d="M8 10V7a4 4 0 018 0v3" stroke={color} strokeWidth={sw}/></svg>),
+    lock_open: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><rect x="5" y="10" width="14" height="10" rx="2" stroke={color} strokeWidth={sw}/><path d="M8 10V7a4 4 0 017-2.5" stroke={color} strokeWidth={sw}/></svg>),
+    seat: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M7 4a1.5 1.5 0 011.5 1.5V13H15a1.5 1.5 0 010 3H7.5A2 2 0 015.5 14V5.5A1.5 1.5 0 017 4z" stroke={color} strokeWidth={sw} strokeLinejoin="round"/><path d="M6 16v3M16 16v3" stroke={color} strokeWidth={sw} strokeLinecap="round"/></svg>),
+    co2: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><circle cx="7" cy="13" r="4" stroke={color} strokeWidth={sw}/><circle cx="16" cy="11" r="3" stroke={color} strokeWidth={sw}/><path d="M3 19h18" stroke={color} strokeWidth={sw} strokeLinecap="round" opacity="0.5"/></svg>),
+    calendar: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><rect x="4" y="5" width="16" height="15" rx="2" stroke={color} strokeWidth={sw}/><path d="M4 10h16M9 3v4M15 3v4" stroke={color} strokeWidth={sw} strokeLinecap="round"/></svg>),
+    download: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M12 4v11M7 10l5 5 5-5M5 20h14" stroke={color} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round"/></svg>),
+    upload: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M12 15V4M7 9l5-5 5 5M5 20h14" stroke={color} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round"/></svg>),
+    bag: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><rect x="5" y="7" width="14" height="13" rx="2" stroke={color} strokeWidth={sw}/><path d="M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2M9 11v5M15 11v5" stroke={color} strokeWidth={sw} strokeLinecap="round"/></svg>),
+    food: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M7 3v8M5 3v5a2 2 0 004 0V3M7 11v10M17 21V3c-2 1-3 4-3 7h3" stroke={color} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round"/></svg>),
+    camera: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M4 8h3l2-3h6l2 3h3v11H4z" stroke={color} strokeWidth={sw} strokeLinejoin="round"/><circle cx="12" cy="13" r="3.5" stroke={color} strokeWidth={sw}/></svg>),
+    image: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><rect x="3" y="5" width="18" height="14" rx="2" stroke={color} strokeWidth={sw}/><circle cx="9" cy="10" r="1.8" stroke={color} strokeWidth={sw}/><path d="M3 17l5-4 4 3 3-2 6 4" stroke={color} strokeWidth={sw} strokeLinejoin="round"/></svg>),
+    users: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><circle cx="9" cy="8" r="3" stroke={color} strokeWidth={sw}/><path d="M3 19c0-3 3-5 6-5s6 2 6 5" stroke={color} strokeWidth={sw} strokeLinecap="round"/><circle cx="17" cy="9" r="2.3" stroke={color} strokeWidth={sw}/><path d="M17 14c2.5 0 4 1.6 4 4" stroke={color} strokeWidth={sw} strokeLinecap="round"/></svg>),
+    chart: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M4 20h16M7 16v-5M12 16V6M17 16v-8" stroke={color} strokeWidth={sw} strokeLinecap="round"/></svg>),
+    gear: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3" stroke={color} strokeWidth={sw}/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1" stroke={color} strokeWidth={sw} strokeLinecap="round"/></svg>),
+    heart: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M12 20s-7-4.4-7-10a4 4 0 017-2.6A4 4 0 0119 10c0 5.6-7 10-7 10z" stroke={color} strokeWidth={sw} strokeLinejoin="round"/></svg>),
+    heartFill: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M12 20s-7-4.4-7-10a4 4 0 017-2.6A4 4 0 0119 10c0 5.6-7 10-7 10z" fill={color} stroke={color} strokeWidth={sw} strokeLinejoin="round"/></svg>),
+    wind: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M3 9h11a3 3 0 10-3-3M3 15h15a3 3 0 11-3 3M3 12h7" stroke={color} strokeWidth={sw} strokeLinecap="round"/></svg>),
+    map: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z M9 4v14M15 6v14" stroke={color} strokeWidth={sw} strokeLinejoin="round"/></svg>),
+    info: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke={color} strokeWidth={sw}/><path d="M12 11v6M12 7.5v.5" stroke={color} strokeWidth={sw} strokeLinecap="round"/></svg>),
+    share: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><circle cx="18" cy="5" r="2.5" stroke={color} strokeWidth={sw}/><circle cx="6" cy="12" r="2.5" stroke={color} strokeWidth={sw}/><circle cx="18" cy="19" r="2.5" stroke={color} strokeWidth={sw}/><path d="M8.2 10.8l7.6-4.4M8.2 13.2l7.6 4.4" stroke={color} strokeWidth={sw}/></svg>),
+    radar: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke={color} strokeWidth={sw} opacity="0.5"/><circle cx="12" cy="12" r="5" stroke={color} strokeWidth={sw} opacity="0.5"/><path d="M12 12l6-6" stroke={color} strokeWidth={sw} strokeLinecap="round"/><circle cx="12" cy="12" r="1.3" fill={color}/></svg>),
+  };
+  return icons[id] || null;
 }
 
-function ConnBridge({ conn }) {
-  const [open, setOpen] = useState(false);
-  const urgency = conn.buffer > 120
-    ? { c:"#00e87a", bg:"rgba(0,232,122,0.07)", br:"rgba(0,232,122,0.25)", label:"✅ Comfortable connection" }
-    : conn.buffer > 45
-    ? { c:"#ffc800", bg:"rgba(255,200,0,0.07)", br:"rgba(255,200,0,0.25)", label:"⏰ Tight connection" }
-    : { c:"#ff3a54", bg:"rgba(255,58,84,0.07)", br:"rgba(255,58,84,0.25)", label:"🚨 Very tight — rush!" };
-  return (
-    <div style={{ background:urgency.bg, borderRadius:16, border:`1px solid ${urgency.br}`, overflow:"hidden", marginBottom:12, marginTop:2 }}>
-      <div onClick={()=>setOpen(o=>!o)} style={{ padding:"13px 16px", display:"flex", alignItems:"center", gap:10, cursor:"pointer" }}>
-        <div style={{ flex:1 }}>
-          <div style={{ fontSize:14, fontWeight:700, color:urgency.c, marginBottom:3 }}>{urgency.label}</div>
-          <div style={{ fontSize:12, color:C.soft }}>{conn.walkMins} min transfer · {conn.buffer} min buffer · {conn.transport}</div>
-        </div>
-        <span style={{ fontSize:14, color:C.muted }}>{open?"▲":"▼"}</span>
-      </div>
-      {open&&(
-        <div style={{ padding:"0 16px 16px", borderTop:`1px solid ${urgency.br}` }}>
-          <div style={{ display:"flex", marginBottom:16, paddingTop:14 }}>
-            {[["LAYOVER",`${Math.floor(conn.layoverMins/60)}h${conn.layoverMins%60}m`,C.text],["WALKING",`${conn.walkMins}m`,C.yellow],["BUFFER",`${conn.buffer}m`,urgency.c]].map(([l,v,c],i)=>(
-              <div key={l} style={{ flex:1, textAlign:"center", borderRight:i<2?`1px solid ${C.border}`:"none" }}>
-                <div style={{ fontSize:9, color:C.muted, fontFamily:C.mono, letterSpacing:1, marginBottom:5 }}>{l}</div>
-                <div style={{ fontSize:24, fontWeight:800, color:c, fontFamily:C.mono }}>{v}</div>
-              </div>
-            ))}
-          </div>
-          <div style={{ background:C.surface, borderRadius:12, padding:"14px", marginBottom:12, border:`1px solid ${C.border}` }}>
-            <div style={{ display:"flex", gap:14, marginBottom:12 }}>
-              <div style={{ flex:1 }}>
-                <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:1, marginBottom:5 }}>🛬 ARRIVING AT</div>
-                <div style={{ fontSize:14, fontWeight:700, color:C.text, marginBottom:2 }}>{conn.arrTerminal}</div>
-                <div style={{ fontSize:12, color:C.soft }}>Gate: <b style={{ color:C.text, fontFamily:C.mono }}>{conn.arrGate}</b></div>
-              </div>
-              <div style={{ width:1, background:C.border }}/>
-              <div style={{ flex:1 }}>
-                <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:1, marginBottom:5 }}>🛫 DEPARTING FROM</div>
-                <div style={{ fontSize:14, fontWeight:700, color:C.text, marginBottom:2 }}>{conn.depTerminal}</div>
-                <div style={{ fontSize:12, color:C.soft }}>Gate: <b style={{ color:C.text, fontFamily:C.mono }}>{conn.depGate}</b></div>
-              </div>
-            </div>
-            <div style={{ background:"rgba(255,200,0,0.08)", borderRadius:9, padding:"9px 12px", border:"1px solid rgba(255,200,0,0.25)" }}>
-              <div style={{ fontSize:13, color:C.yellow, fontWeight:600 }}>⚠️ {conn.security}</div>
-            </div>
-          </div>
-          <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:1.5, marginBottom:10 }}>STEP BY STEP</div>
-          {conn.steps.map((s,i)=>(
-            <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 0", borderBottom:i<conn.steps.length-1?`1px solid ${C.border}`:"none" }}>
-              <span style={{ fontSize:20, width:28, textAlign:"center", flexShrink:0 }}>{s.icon}</span>
-              <div style={{ flex:1, fontSize:14, color:C.text, fontWeight:500 }}>{s.label}</div>
-              <div style={{ fontSize:14, fontWeight:800, color:C.yellow, fontFamily:C.mono, flexShrink:0 }}>{s.mins}m</div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function FlightCard({ f, onTap }) {
-  const s = sc(f.status);
-  const [liveData, setLiveData] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [showDebug, setShowDebug] = useState(false);
-  const [apiResults, setApiResults] = useState({ fa:null, av:null, ae:null });
-
-  useEffect(() => {
-    setLoading(true);
-    const iata = f.iata.replace(" ", "");
-    const dateStr = f.sortDate?.slice(0,10) || "2026-06-14";
-
-    // Run all 3 APIs simultaneously and capture individual results
-    Promise.allSettled([
-      fetchFlightAware(iata, dateStr),
-      fetchAviationStack(iata, dateStr),
-      fetchAeroDataBox(iata, dateStr),
-    ]).then(([fa, av, ae]) => {
-      const faData = fa.status === "fulfilled" ? fa.value : null;
-      const avData = av.status === "fulfilled" ? av.value : null;
-      const aeData = ae.status === "fulfilled" ? ae.value : null;
-      setApiResults({ fa:faData, av:avData, ae:aeData });
-      // Best data wins
-      const faStatus = faData?.status || "";
-      const faNorm = faStatus.includes("En Route")?"In Air":faStatus.includes("Arrived")?"Landed":faStatus.includes("Cancelled")?"Cancelled":faStatus.includes("Delayed")?"Delayed":faStatus.includes("Scheduled")?"Scheduled":null;
-      const avRaw = avData?.status || "";
-      const avNorm = avRaw==="active"?"In Air":avRaw==="landed"?"Landed":avRaw==="cancelled"?"Cancelled":avRaw==="scheduled"?"Scheduled":null;
-      setLiveData({
-        status: faNorm || avNorm || null,
-        depTime: faData?.depTime || avData?.depTime || null,
-        arrTime: faData?.arrTime || avData?.arrTime || null,
-        depDelay: faData?.depDelay || avData?.depDelay || 0,
-        arrDelay: faData?.arrDelay || avData?.arrDelay || 0,
-        gate: faData?.depGate || avData?.depGate || aeData?.gate || null,
-        depTerminal: faData?.depTerminal || avData?.depTerminal || aeData?.depTerminal || null,
-        arrTerminal: faData?.arrTerminal || avData?.arrTerminal || aeData?.arrTerminal || null,
-        inbound: faData?.inboundId ? "Fetching inbound..." : null,
-      });
-      setLoading(false);
-    });
-  }, [f.id]);
-
-  const gate = liveData?.gate || f.gate;
-  const terminal = liveData?.depTerminal || f.terminal;
-  const status = liveData?.status || f.status;
-  const delay = liveData?.depDelay || 0;
-  const inbound = liveData?.inbound || f.inbound;
-  const ls = sc(status);
-
-  // Debug helper
-  function apiRowColor(data) {
-    if (data === null) return C.muted;
-    if (data && (data.status || data.gate || data.depGate)) return C.green;
-    return C.yellow;
-  }
-  function apiRowIcon(data) {
-    if (data === null) return "⚪";
-    if (data && (data.status || data.gate || data.depGate)) return "✅";
-    return "⚠️";
-  }
-  function apiRowLabel(data, name) {
-    if (data === null) return `${name} — no data (flight too far out or key issue)`;
-    const parts = [];
-    if (data.status) parts.push(`Status: ${data.status}`);
-    if (data.depGate || data.gate) parts.push(`Gate: ${data.depGate || data.gate}`);
-    if (data.depTerminal) parts.push(`Terminal: ${data.depTerminal}`);
-    if (data.depDelay > 0) parts.push(`Delay: +${data.depDelay}m`);
-    return `${name} — ${parts.length ? parts.join(" · ") : "connected but no live data yet"}`;
-  }
-
-  return (
-    <div style={{ background:C.card, borderRadius:20, border:`1px solid ${status==="Delayed"?"rgba(255,200,0,0.3)":status==="Gate Change"?"rgba(167,139,250,0.3)":C.border}`, padding:16, marginBottom:10, animation:"cardIn 0.4s ease" }}>
-      <div onClick={()=>onTap(f)} style={{ cursor:"pointer" }}>
-        <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:14 }}>
-          <AirlineLogo code={f.code} size={30}/>
-          <div style={{ flex:1 }}>
-            <div style={{ fontSize:16, fontWeight:800, color:C.text, fontFamily:C.mono }}>{f.iata}</div>
-            <div style={{ fontSize:12, color:C.soft }}>{f.airline} · {f.aircraft}</div>
-          </div>
-          <StatusPill status={status}/>
-          {delay>0&&<span style={{ background:"rgba(255,200,0,0.1)", border:"1px solid rgba(255,200,0,0.3)", borderRadius:20, padding:"3px 8px", fontSize:10, color:C.yellow, fontWeight:700, fontFamily:C.mono }}>+{delay}m</span>}
-          {loading&&<span style={{ fontSize:10, color:C.muted, fontFamily:C.mono }}>↻</span>}
-        </div>
-        <div style={{ display:"flex", alignItems:"center", marginBottom:14 }}>
-          <div style={{ textAlign:"center", minWidth:60 }}>
-            <div style={{ fontSize:30, fontWeight:800, color:C.text, fontFamily:C.mono, lineHeight:1 }}>{f.dep}</div>
-            <div style={{ fontSize:13, color:"#a8c8e8", fontWeight:600, marginTop:4 }}>{f.depTime}</div>
-          </div>
-          <div style={{ flex:1, display:"flex", justifyContent:"center" }}>
-            <Arc progress={f.progress} color={s.c}/>
-          </div>
-          <div style={{ textAlign:"center", minWidth:60 }}>
-            <div style={{ fontSize:30, fontWeight:800, color:C.text, fontFamily:C.mono, lineHeight:1 }}>{f.arr}</div>
-            <div style={{ fontSize:13, color:"#a8c8e8", fontWeight:600, marginTop:4 }}>{f.arrTime}</div>
-          </div>
-        </div>
-        <div style={{ display:"flex", gap:6, flexWrap:"wrap", justifyContent:"center" }}>
-          <span style={{ background:gate!=="TBD"?"rgba(0,200,240,0.1)":C.surface, borderRadius:8, padding:"5px 11px", fontSize:12, color:gate!=="TBD"?C.accent:C.soft, border:`1px solid ${gate!=="TBD"?"rgba(0,200,240,0.3)":C.border}` }}>Gate <b style={{ color:gate!=="TBD"?C.accent:C.text, fontFamily:C.mono }}>{gate}</b></span>
-          <span style={{ background:terminal!=="TBD"?"rgba(0,200,240,0.1)":C.surface, borderRadius:8, padding:"5px 11px", fontSize:12, color:terminal!=="TBD"?C.accent:C.soft, border:`1px solid ${terminal!=="TBD"?"rgba(0,200,240,0.3)":C.border}` }}>Terminal <b style={{ color:terminal!=="TBD"?C.accent:C.text, fontFamily:C.mono }}>{terminal}</b></span>
-          {f.conf&&<span style={{ background:C.surface, borderRadius:8, padding:"5px 11px", fontSize:12, color:C.soft, border:`1px solid ${C.border}`, fontFamily:C.mono }}>CONF# {f.conf}</span>}
-          {f.date&&<span style={{ background:C.surface, borderRadius:8, padding:"5px 11px", fontSize:12, color:C.soft, border:`1px solid ${C.border}` }}>{f.date}</span>}
-        </div>
-      </div>
-
-      {/* Inbound tracker */}
-      {inbound&&(
-        <div style={{ marginTop:12, paddingTop:12, borderTop:`1px solid ${C.border}`, display:"flex", alignItems:"center", gap:10 }}>
-          <span style={{ fontSize:16 }}>🔄</span>
-          <div style={{ flex:1 }}>
-            <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:0.5, marginBottom:2 }}>YOUR INCOMING AIRCRAFT</div>
-            <div style={{ fontSize:12, color:C.soft }}>{inbound}</div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Data Sources dropdown — DEV ONLY ── */}
-      {DEV_MODE&&(
-        <>
-        <div onClick={e=>{ e.stopPropagation(); setShowDebug(d=>!d); }} style={{ marginTop:12, paddingTop:10, borderTop:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"space-between", cursor:"pointer" }}>
-          <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-            <span style={{ fontSize:11 }}>📡</span>
-            <span style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:1 }}>DATA SOURCES</span>
-            {loading&&<span style={{ fontSize:10, color:C.muted, fontFamily:C.mono }}>· checking...</span>}
-            {!loading&&<span style={{ fontSize:10, color:liveData?C.green:C.muted, fontFamily:C.mono }}>· {liveData?"live":"pre-flight"}</span>}
-          </div>
-          <span style={{ fontSize:11, color:C.muted }}>{showDebug?"▲":"▼"}</span>
-        </div>
-
-        {showDebug&&(
-          <div style={{ marginTop:10, background:C.surface, borderRadius:12, border:`1px solid ${C.border}`, padding:"12px 14px", animation:"cardIn 0.2s ease" }}>
-            {[
-              ["FlightAware AeroAPI", apiResults.fa, "Gates · Status · Inbound aircraft"],
-              ["AviationStack", apiResults.av, "Status · Times · Delays"],
-              ["AeroDataBox", apiResults.ae, "Gate · Terminal backup"],
-            ].map(([name, data, desc])=>(
-              <div key={name} style={{ display:"flex", alignItems:"flex-start", gap:10, padding:"9px 0", borderBottom:`1px solid ${C.border}` }}>
-                <span style={{ fontSize:14, flexShrink:0, marginTop:2 }}>{apiRowIcon(data)}</span>
-                <div style={{ flex:1 }}>
-                  <div style={{ fontSize:12, fontWeight:700, color:apiRowColor(data), marginBottom:2 }}>{name}</div>
-                  <div style={{ fontSize:11, color:C.soft, marginBottom:2 }}>{desc}</div>
-                  <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono }}>{apiRowLabel(data, "→")}</div>
-                </div>
-              </div>
-            ))}
-            <div style={{ display:"flex", alignItems:"flex-start", gap:10, padding:"9px 0" }}>
-              <span style={{ fontSize:14, flexShrink:0, marginTop:2 }}>⚪</span>
-              <div style={{ flex:1 }}>
-                <div style={{ fontSize:12, fontWeight:700, color:C.muted, marginBottom:2 }}>AvioWiki Lounges</div>
-                <div style={{ fontSize:11, color:C.soft, marginBottom:2 }}>Lounge locations · Access rules · Hours</div>
-                <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono }}>→ Hardcoded MIA/TLV/ZRH — sufficient for launch</div>
-              </div>
-            </div>
-            <div style={{ marginTop:10, padding:"8px 10px", background:"rgba(0,200,240,0.05)", borderRadius:8, border:"1px solid rgba(0,200,240,0.15)" }}>
-              <div style={{ fontSize:10, color:C.muted, lineHeight:1.5 }}>
-                💡 Live data activates ~24–48h before departure. Before that, APIs return "Scheduled" which is correct — not a bug.
-              </div>
-            </div>
-          </div>
-        )}
-        </>
-      )}
-    </div>
-  );
-}
-
-// ── MODALS ─────────────────────────────────────────────────────
-
-// ── Cancellation Alert Banner ─────────────────────────────────
-function CancellationAlert({ flight, onDismiss, onAction }) {
+function CancellationAlert({ flight, simulated, onDismiss, onAction, onShare }) {
   const [expanded, setExpanded] = useState(true);
   if (!expanded) return null;
   return (
     <div style={{ position:"fixed", top:0, left:0, right:0, zIndex:80, maxWidth:480, margin:"0 auto" }}>
       <div style={{ background:"linear-gradient(135deg,#ff3a54,#cc0022)", padding:"14px 16px", boxShadow:"0 4px 20px rgba(255,58,84,0.4)" }}>
         <div style={{ display:"flex", alignItems:"flex-start", gap:10, marginBottom:12 }}>
-          <span style={{ fontSize:24, flexShrink:0 }}>🚨</span>
+          <StatIcon id="alert" color="#fff" size={24}/>
           <div style={{ flex:1 }}>
             <div style={{ fontSize:15, fontWeight:800, color:"#fff", marginBottom:3 }}>Flight Cancelled!</div>
             <div style={{ fontSize:13, color:"rgba(255,255,255,0.85)", marginBottom:2 }}>{flight.iata} · {flight.dep} → {flight.arr}</div>
-            <div style={{ fontSize:12, color:"rgba(255,255,255,0.7)" }}>{flight.date} · We detected this before the airline notified you</div>
+            <div style={{ fontSize:12, color:"rgba(255,255,255,0.7)" }}>{flight.date} · {simulated?"Simulated scenario (demo)":"Reported by live flight data. Confirm with the airline."}</div>
           </div>
-          <div onClick={()=>setExpanded(false)} style={{ fontSize:18, color:"rgba(255,255,255,0.7)", cursor:"pointer", flexShrink:0 }}>✕</div>
+          <div onClick={()=>{ setExpanded(false); if (onDismiss) onDismiss(); }} style={{ fontSize:18, color:"rgba(255,255,255,0.7)", cursor:"pointer", flexShrink:0 }}>✕</div>
         </div>
         <div style={{ display:"flex", gap:8 }}>
           <div onClick={onAction} style={{ flex:1, background:"rgba(255,255,255,0.2)", border:"1px solid rgba(255,255,255,0.3)", borderRadius:11, padding:"10px 0", textAlign:"center", cursor:"pointer" }}>
-            <span style={{ fontSize:13, fontWeight:800, color:"#fff" }}>Find Alternatives ✈</span>
-          </div>          <div onClick={()=>{ alert(`Notifying your contacts about the cancellation of ${flight.iata}...
-
-They will receive:
-"⚠️ Flight ${flight.iata} (${flight.dep}→${flight.arr}) has been cancelled. Plans may change."`); }} style={{ flex:1, background:"rgba(255,255,255,0.15)", border:"1px solid rgba(255,255,255,0.25)", borderRadius:11, padding:"10px 0", textAlign:"center", cursor:"pointer" }}>
-            <span style={{ fontSize:13, fontWeight:800, color:"#fff" }}>Alert Contacts 🔔</span>
+            <span style={{ fontSize:13, fontWeight:800, color:"#fff" }}>Find Alternatives →</span>
+          </div>
+          <div onClick={onShare} style={{ flex:1, background:"rgba(255,255,255,0.15)", border:"1px solid rgba(255,255,255,0.25)", borderRadius:11, padding:"10px 0", textAlign:"center", cursor:"pointer" }}>
+            <span style={{ fontSize:13, fontWeight:800, color:"#fff" }}>Tell Family</span>
           </div>
         </div>
       </div>
@@ -565,14 +1134,11 @@ They will receive:
   );
 }
 
-// ── Cancellation Tracker Screen ────────────────────────────────
-function CancellationScreen({ onBack }) {
-  const [notifications, setNotifications] = useState([
-    true, true, true, // SMS, Email, Push all on by default
-  ]);
+function CancellationScreen({ onBack, liveOn }) {
+  const [notifications, setNotifications] = useState([true, true, true]);
   const history = [
-    { id:"c1", iata:"AA 100", dep:"MIA", arr:"JFK", date:"Example flight", detectedAt:"6 hours before departure", notifiedAt:"Never — airline did not notify", status:"Cancelled", rebookedOn:"AA 102", savings:"Caught early — rebooking saved $340" },
-    { id:"c2", iata:"DL 200", dep:"ATL", arr:"LAX", date:"Example flight", detectedAt:"3 hours before departure", notifiedAt:"1 hour before departure", status:"Cancelled", rebookedOn:"DL 202", savings:"Detected 2hrs before airline alert" },
+    { id:"c1", iata:"AA 100", dep:"MIA", arr:"JFK", date:"Example flight", detectedAt:"6 hours before departure", notifiedAt:"Never — airline did not notify", rebookedOn:"AA 102", savings:"Caught early — rebooking saved $340" },
+    { id:"c2", iata:"DL 200", dep:"ATL", arr:"LAX", date:"Example flight", detectedAt:"3 hours before departure", notifiedAt:"1 hour before departure", rebookedOn:"DL 202", savings:"Detected 2hrs before airline alert" },
   ];
   return (
     <div style={{ position:"fixed", inset:0, background:C.bg, zIndex:50, overflowY:"auto" }}>
@@ -580,696 +1146,87 @@ function CancellationScreen({ onBack }) {
         <div onClick={onBack} style={{ width:34, height:34, borderRadius:17, background:C.surface, border:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", fontSize:18, color:C.accent }}>←</div>
         <div style={{ flex:1 }}>
           <div style={{ fontSize:16, fontWeight:800, color:C.text }}>Cancellation Tracker</div>
-          <div style={{ fontSize:12, color:C.soft }}>Real-time alerts before the airline tells you</div>
+          <div style={{ fontSize:12, color:C.soft }}>{liveOn?"Watching your flights for cancellations":"Live data is off: watching your booking only"}</div>
         </div>
-        <div style={{ background:"rgba(255,58,84,0.1)", border:"1px solid rgba(255,58,84,0.3)", borderRadius:8, padding:"4px 10px", fontSize:10, fontWeight:700, color:C.red, fontFamily:C.mono }}>LIVE</div>
+        <div style={{ background:"rgba(255,58,84,0.1)", border:"1px solid rgba(255,58,84,0.3)", borderRadius:8, padding:"4px 10px", fontSize:10, fontWeight:700, color:C.red, fontFamily:C.mono }}>{liveOn?"LIVE":"OFF"}</div>
       </div>
       <div style={{ padding:"16px 16px 100px" }}>
-
-        {/* How it works */}
         <div style={{ background:"rgba(0,200,240,0.06)", borderRadius:16, border:"1px solid rgba(0,200,240,0.2)", padding:"14px 16px", marginBottom:16 }}>
-          <div style={{ fontSize:13, fontWeight:800, color:C.accent, marginBottom:10 }}>⚡ How My Runway Detects Cancellations</div>
-          {[
-            ["🔍","We check your flights every 15 minutes via FlightAware, AeroDataBox & AviationStack"],
-            ["📡","The moment any source flags a cancellation we alert you instantly"],
-            ["⏱️","On average we detect cancellations 2–4 hours before the airline emails you"],
-            ["🔔","You get SMS, push notification, and email simultaneously"],
-          ].map(([icon,text],i)=>(
+          <div style={{ fontSize:13, fontWeight:800, color:C.accent, marginBottom:10, display:"flex", alignItems:"center", gap:7 }}><StatIcon id="bolt" color={C.accent} size={16}/> How My Runway Detects Cancellations</div>
+          {[["search","While the app is open we re-check your flights every 5 minutes through the /api/flight proxy (FlightAware, AeroDataBox, AviationStack)"],["satellite","If any source reports a cancellation, the flight card turns red and you get a banner with next steps"],["hourglass","Flight-data feeds often update before the airline's email arrives, but always confirm with the airline"],["bell","SMS, push and email delivery need a backend and are planned, not live yet"]].map(([icon,text],i)=>(
             <div key={i} style={{ display:"flex", gap:10, marginBottom:8, alignItems:"flex-start" }}>
-              <span style={{ fontSize:16, flexShrink:0 }}>{icon}</span>
+              <span style={{ flexShrink:0, marginTop:1 }}><StatIcon id={icon} color={C.accent} size={16}/></span>
               <div style={{ fontSize:12, color:C.soft, lineHeight:1.5 }}>{text}</div>
             </div>
           ))}
         </div>
-
-        {/* Alert settings */}
         <div style={{ background:C.card, borderRadius:16, border:`1px solid ${C.border}`, padding:"14px 16px", marginBottom:16 }}>
-          <div style={{ fontSize:13, fontWeight:800, color:C.text, marginBottom:12 }}>🔔 Alert Settings</div>
-          {[["📱","SMS Text Message","Instant text to your phone"],["📧","Email","Full cancellation details + alternatives"],["🔔","Push Notification","App notification on your device"]].map(([icon,title,desc],i)=>(
+          <div style={{ fontSize:13, fontWeight:800, color:C.text, marginBottom:12, display:"flex", alignItems:"center", gap:7 }}><StatIcon id="bell" color={C.text} size={16}/> Alert Settings</div>
+          {[["phone","SMS Text Message","Instant text to your phone"],["email","Email","Full cancellation details + alternatives"],["bell","Push Notification","App notification on your device"]].map(([icon,title,desc],i)=>(
             <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 0", borderBottom:i<2?`1px solid ${C.border}`:"none" }}>
-              <span style={{ fontSize:20 }}>{icon}</span>
+              <StatIcon id={icon} color={C.soft} size={20}/>
               <div style={{ flex:1 }}>
                 <div style={{ fontSize:13, fontWeight:600, color:C.text }}>{title}</div>
                 <div style={{ fontSize:11, color:C.muted }}>{desc}</div>
               </div>
-              <div onClick={()=>setNotifications(n=>{ const copy=[...n]; copy[i]=!copy[i]; return copy; })} style={{ width:44, height:26, borderRadius:13, background:notifications[i]?C.red:"#2a3f5f", position:"relative", cursor:"pointer", transition:"background 0.2s", flexShrink:0 }}>
+              <div onClick={()=>setNotifications(n=>{ const c=[...n]; c[i]=!c[i]; return c; })} style={{ width:44, height:26, borderRadius:13, background:notifications[i]?C.red:"#2a3f5f", position:"relative", cursor:"pointer", flexShrink:0 }}>
                 <div style={{ width:20, height:20, borderRadius:10, background:"#fff", position:"absolute", top:3, left:notifications[i]?21:3, transition:"left 0.2s" }}/>
               </div>
             </div>
           ))}
-          <div style={{ marginTop:14 }}>
-            <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:1.5, marginBottom:8 }}>ALSO ALERT THESE CONTACTS</div>
-            <div style={{ display:"flex", gap:8 }}>
-              <input placeholder="Phone or email (pickup person)" style={{ flex:1, background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"10px 12px", color:C.text, fontSize:13, outline:"none" }}/>
-              <div style={{ background:`linear-gradient(135deg,${C.accent},#007aaa)`, borderRadius:10, padding:"10px 14px", cursor:"pointer" }}>
-                <span style={{ fontSize:12, fontWeight:800, color:"#000" }}>Add</span>
-              </div>
-            </div>
-          </div>
         </div>
-
-        {/* Cancellation history */}
-        <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:12 }}>YOUR CANCELLATION HISTORY</div>
+        <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:12 }}>EXAMPLES: HOW AN ALERT LOOKS</div>
         {history.map(c=>(
           <div key={c.id} style={{ background:C.card, borderRadius:16, border:"1px solid rgba(255,58,84,0.2)", padding:"14px 16px", marginBottom:12 }}>
             <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12 }}>
-              <span style={{ fontSize:24 }}>⚠️</span>
+              <StatIcon id="warning" color={C.red} size={24}/>
               <div style={{ flex:1 }}>
                 <div style={{ fontSize:15, fontWeight:800, color:C.text, fontFamily:C.mono }}>{c.iata}</div>
                 <div style={{ fontSize:12, color:C.soft }}>{c.dep} → {c.arr} · {c.date}</div>
               </div>
               <div style={{ background:"rgba(255,58,84,0.1)", border:"1px solid rgba(255,58,84,0.25)", borderRadius:20, padding:"3px 10px", fontSize:10, color:C.red, fontWeight:700, fontFamily:C.mono }}>Cancelled</div>
             </div>
-            {[
-              ["🔍 Detected by My Runway", c.detectedAt],
-              ["✉️ Airline notified you", c.notifiedAt],
-              ["✈️ Rebooked onto", c.rebookedOn],
-            ].map(([label,val])=>(
+            {[["Detected by My Runway", c.detectedAt],["Airline notified you", c.notifiedAt],["Rebooked onto", c.rebookedOn]].map(([label,val])=>(
               <div key={label} style={{ display:"flex", justifyContent:"space-between", padding:"7px 0", borderTop:`1px solid ${C.border}` }}>
                 <span style={{ fontSize:12, color:C.soft }}>{label}</span>
                 <span style={{ fontSize:12, fontWeight:600, color:C.text }}>{val}</span>
               </div>
             ))}
-            <div style={{ background:"rgba(0,232,122,0.07)", borderRadius:10, padding:"9px 12px", marginTop:10, border:"1px solid rgba(0,232,122,0.2)" }}>
-              <span style={{ fontSize:12, color:C.green, fontWeight:600 }}>💰 {c.savings}</span>
+            <div style={{ background:"rgba(0,232,122,0.07)", borderRadius:10, padding:"9px 12px", marginTop:10, border:"1px solid rgba(0,232,122,0.2)", display:"flex", alignItems:"center", gap:7 }}>
+              <StatIcon id="money" color={C.green} size={15}/><span style={{ fontSize:12, color:C.green, fontWeight:600 }}>{c.savings}</span>
             </div>
           </div>
         ))}
-
-        <div style={{ background:C.surface, borderRadius:14, border:`1px solid ${C.border}`, padding:"14px 16px", textAlign:"center" }}>
-          <div style={{ fontSize:13, color:C.muted, marginBottom:4 }}>Monitoring your flights 24/7</div>
-          <div style={{ fontSize:12, color:C.soft }}>Checked every <b style={{ color:C.accent }}>15 minutes</b> across <b style={{ color:C.accent }}>3 data sources</b></div>
-        </div>
       </div>
-    </div>
-  );
-}
-
-function AddModal({ onClose }) {
-  const [num, setNum] = useState("");
-  const [date, setDate] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState("");
-  function submit() {
-    if (!num.trim()) { setErr("Enter a flight number e.g. AA 100"); return; }
-    if (!date) { setErr("Pick a date"); return; }
-    setBusy(true); setErr("");
-    setTimeout(()=>{ setBusy(false); alert(`Flight ${num.toUpperCase()} added!\nIn the live app this pulls real data.`); onClose(); }, 1400);
-  }
-  return (
-    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", zIndex:60, display:"flex", flexDirection:"column", justifyContent:"flex-end" }} onClick={onClose}>
-      <div onClick={e=>e.stopPropagation()} style={{ background:C.surface, borderTopLeftRadius:24, borderTopRightRadius:24, padding:"20px 20px 48px", border:`1px solid ${C.border}`, maxWidth:480, margin:"0 auto", width:"100%" }}>
-        <div style={{ width:36, height:4, background:C.border, borderRadius:2, margin:"0 auto 18px" }}/>
-        <div style={{ fontSize:22, fontWeight:800, color:C.text, marginBottom:6 }}>Track a Flight</div>
-        <div style={{ fontSize:14, color:C.soft, marginBottom:22 }}>Enter your flight number and date.</div>
-        <div style={{ marginBottom:14 }}>
-          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:8 }}>FLIGHT NUMBER</div>
-          <input value={num} onChange={e=>setNum(e.target.value)} placeholder="AA 100, UA456, DL 202..."
-            style={{ width:"100%", background:C.card, border:`1.5px solid ${num?C.accent+"60":C.border}`, borderRadius:13, padding:"14px 16px", color:C.text, fontSize:16, fontFamily:C.mono, outline:"none", boxSizing:"border-box" }}/>
-        </div>
-        <div style={{ marginBottom:err?12:20 }}>
-          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:8 }}>FLIGHT DATE</div>
-          <input type="date" value={date} onChange={e=>setDate(e.target.value)}
-            style={{ width:"100%", background:C.card, border:`1.5px solid ${date?C.accent+"60":C.border}`, borderRadius:13, padding:"14px 16px", color:date?C.text:C.muted, fontSize:14, fontFamily:C.mono, outline:"none", colorScheme:"dark", boxSizing:"border-box" }}/>
-        </div>
-        {err&&<div style={{ fontSize:13, color:C.red, marginBottom:14 }}>⚠️ {err}</div>}
-        <div onClick={submit} style={{ background:busy?C.muted:`linear-gradient(135deg,${C.accent},#007aaa)`, borderRadius:14, padding:"16px 0", textAlign:"center", fontWeight:800, fontSize:16, color:"#000", cursor:busy?"default":"pointer" }}>
-          {busy?"Looking up flight...":"Track This Flight →"}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ShareModal({ onClose }) {
-  const [note, setNote] = useState("");
-  const [copied, setCopied] = useState(false);
-  const autoMsg = `Landing TLV (Ben Gurion) at 9:30 AM on El Al LY 018. Departing MIA 2:30 PM Sun Jun 14. Arriving Mon Jun 15.`;
-  const shareLink = "myrunwayapp.co/t/abc123k";
-  function share(method) {
-    if (method==="Copy Link") { setCopied(true); setTimeout(()=>setCopied(false),2000); }
-    else alert(`Opening ${method}...\n\n${autoMsg}${note?"\n\n"+note:""}\n\nTrack live: ${shareLink}`);
-  }
-  return (
-    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", zIndex:60, display:"flex", flexDirection:"column", justifyContent:"flex-end" }} onClick={onClose}>
-      <div onClick={e=>e.stopPropagation()} style={{ background:C.surface, borderTopLeftRadius:24, borderTopRightRadius:24, padding:"20px 20px 48px", border:`1px solid ${C.border}`, maxWidth:480, margin:"0 auto", width:"100%" }}>
-        <div style={{ width:36, height:4, background:C.border, borderRadius:2, margin:"0 auto 18px" }}/>
-        <div style={{ fontSize:20, fontWeight:800, color:C.text, marginBottom:6 }}>Share Trip</div>
-        <div style={{ fontSize:13, color:C.soft, marginBottom:16 }}>Your pickup person gets a live tracking link — no app needed.</div>
-        <div style={{ background:C.card, borderRadius:12, padding:"13px 14px", marginBottom:14, border:`1px solid ${C.border}` }}>
-          <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:1, marginBottom:6 }}>AUTO-GENERATED MESSAGE</div>
-          <div style={{ fontSize:13, color:C.text, lineHeight:1.6 }}>{autoMsg}</div>
-        </div>
-        <div style={{ marginBottom:16 }}>
-          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:1.5, marginBottom:8 }}>ADD A PERSONAL NOTE (optional)</div>
-          <input value={note} onChange={e=>setNote(e.target.value)} placeholder="e.g. bring coffee ☕, I have 2 bags..."
-            style={{ width:"100%", background:C.card, border:`1.5px solid ${note?C.accent+"60":C.border}`, borderRadius:12, padding:"13px 14px", color:C.text, fontSize:14, outline:"none", boxSizing:"border-box" }}/>
-        </div>
-        <div style={{ background:"rgba(0,200,240,0.06)", borderRadius:12, padding:"10px 14px", marginBottom:16, border:"1px solid rgba(0,200,240,0.2)", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-          <span style={{ fontSize:12, color:C.accent, fontFamily:C.mono }}>{shareLink}</span>
-          <span style={{ fontSize:11, color:copied?C.green:C.accent, fontWeight:700, cursor:"pointer" }} onClick={()=>share("Copy Link")}>{copied?"✅ Copied!":"Copy"}</span>
-        </div>
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
-          {[["💬","WhatsApp","#25D366"],["✉️","iMessage","#34C759"],["📧","Email","#4285F4"],["🔗","Copy Link",C.accent]].map(([icon,label,color])=>(
-            <div key={label} onClick={()=>share(label)} style={{ background:`${color}15`, border:`1px solid ${color}40`, borderRadius:12, padding:"12px 0", textAlign:"center", cursor:"pointer" }}>
-              <div style={{ fontSize:20, marginBottom:4 }}>{icon}</div>
-              <div style={{ fontSize:12, fontWeight:700, color }}>{label==="Copy Link"&&copied?"✅ Copied!":label}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function SettingsModal({ onClose, isDark, setIsDark, homeAddress, setHomeAddress, accountType, setAccountType, navIdx, setNavIdx }) {
-  const [addr, setAddr] = useState(homeAddress);
-  const [alerts, setAlerts] = useState({ delays:true, cancels:true, gates:true, boarding:true, checkin:true });
-  const [saved, setSaved] = useState(false);
-  function save() {
-    setHomeAddress(addr);
-    setSaved(true);
-    setTimeout(()=>setSaved(false), 2000);
-  }
-  return (
-    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", zIndex:60, display:"flex", flexDirection:"column", justifyContent:"flex-end" }} onClick={onClose}>
-      <div onClick={e=>e.stopPropagation()} style={{ background:C.surface, borderTopLeftRadius:24, borderTopRightRadius:24, padding:"20px 20px 48px", border:`1px solid ${C.border}`, maxWidth:480, margin:"0 auto", width:"100%", maxHeight:"85vh", overflowY:"auto" }}>
-        <div style={{ width:36, height:4, background:C.border, borderRadius:2, margin:"0 auto 18px" }}/>
-        <div style={{ fontSize:20, fontWeight:800, color:C.text, marginBottom:20 }}>Settings</div>
-
-        {/* Account Type */}
-        <div style={{ marginBottom:20 }}>
-          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10 }}>ACCOUNT TYPE</div>
-          <div style={{ display:"flex", gap:8 }}>
-            {[["personal","👤","Personal"],["pro","⭐","Pro"],["corporate","🏢","Corporate"]].map(([id,icon,label])=>(
-              <div key={id} onClick={()=>setAccountType(id)} style={{ flex:1, background:accountType===id?`${id==="corporate"?C.purple:C.accent}18`:C.card, border:`2px solid ${accountType===id?(id==="corporate"?C.purple:C.accent):C.border}`, borderRadius:12, padding:"12px 6px", textAlign:"center", cursor:"pointer" }}>
-                <div style={{ fontSize:20, marginBottom:4 }}>{icon}</div>
-                <div style={{ fontSize:11, fontWeight:700, color:accountType===id?(id==="corporate"?C.purple:C.accent):C.soft }}>{label}</div>
-              </div>
-            ))}
-          </div>
-          {accountType==="corporate"&&<div style={{ fontSize:11, color:C.purple, marginTop:8, background:"rgba(167,139,250,0.08)", borderRadius:8, padding:"8px 12px", border:"1px solid rgba(167,139,250,0.2)" }}>🏢 Corporate mode: team dashboard visible, company banner shown at top</div>}
-          {accountType==="personal"&&<div style={{ fontSize:11, color:C.muted, marginTop:8 }}>Personal mode: corporate features hidden. Upgrade to Corporate to manage a team.</div>}
-        </div>
-
-        {/* Theme */}
-        <div style={{ marginBottom:20 }}>
-          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10 }}>APPEARANCE</div>
-          <div style={{ display:"flex", gap:8 }}>
-            {[["🌙","Dark Mode",true,"#04070e","#d4ecff"],["☀️","Light Mode",false,"#f0f4f8","#0a1628"]].map(([icon,label,dark,bg,text])=>(
-              <div key={label} onClick={()=>setIsDark(dark)} style={{ flex:1, background:isDark===dark?`${C.accent}18`:C.card, border:`2px solid ${isDark===dark?C.accent:C.border}`, borderRadius:14, padding:"14px 10px", textAlign:"center", cursor:"pointer", position:"relative" }}>
-                {isDark===dark&&<div style={{ position:"absolute", top:8, right:8, width:8, height:8, borderRadius:4, background:C.accent }}/>}
-                <div style={{ width:40, height:28, borderRadius:8, background:bg, border:`1px solid ${C.border}`, margin:"0 auto 8px", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14 }}>{icon}</div>
-                <div style={{ fontSize:12, fontWeight:700, color:isDark===dark?C.accent:C.soft }}>{label}</div>
-              </div>
-            ))}
-          </div>
-          <div style={{ fontSize:11, color:C.muted, marginTop:8, textAlign:"center" }}>Changes take effect immediately</div>
-        </div>
-
-        {/* Home address */}
-        <div style={{ marginBottom:20 }}>
-          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10 }}>HOME ADDRESS</div>
-          <div style={{ fontSize:12, color:C.soft, marginBottom:8 }}>Used to calculate your leave-by time to the airport</div>
-          <input value={addr} onChange={e=>setAddr(e.target.value)} placeholder="123 Main St, Miami, FL"
-            style={{ width:"100%", background:C.card, border:`1.5px solid ${addr?C.accent+"60":C.border}`, borderRadius:12, padding:"13px 14px", color:C.text, fontSize:14, outline:"none", boxSizing:"border-box" }}/>
-        </div>
-
-        {/* Navigation preference */}
-        <div style={{ marginBottom:20 }}>
-          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10 }}>PREFERRED NAVIGATION APP</div>
-          <div style={{ display:"flex", gap:8 }}>
-            {NAV_APPS.map((a,i)=>(
-              <div key={a.id} onClick={()=>setNavIdx(i)} style={{ flex:1, background:navIdx===i?`${a.color}18`:C.card, border:`2px solid ${navIdx===i?a.color:C.border}`, borderRadius:12, padding:"12px 0", textAlign:"center", cursor:"pointer" }}>
-                <NavLogo app={a} size={24}/>
-                <div style={{ fontSize:11, fontWeight:700, color:navIdx===i?a.color:C.soft, marginTop:4 }}>{a.label}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Alert preferences — moved from cancellation screen */}
-        <div style={{ marginBottom:24 }}>
-          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10 }}>ALERT PREFERENCES</div>
-          {[
-            ["delays","⏰","Delay alerts","Notify me when a flight is delayed"],
-            ["cancels","🚨","Cancellation alerts","Instant alert if a flight is cancelled — before the airline"],
-            ["gates","🚪","Gate changes","Alert when gate is assigned or changes"],
-            ["boarding","✈️","Boarding alerts","Notify me when boarding starts"],
-            ["checkin","🎫","Check-in reminder","Remind me 24h before check-in opens"],
-          ].map(([key,icon,title,desc])=>(
-            <div key={key} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 0", borderBottom:`1px solid ${C.border}` }}>
-              <span style={{ fontSize:20 }}>{icon}</span>
-              <div style={{ flex:1 }}>
-                <div style={{ fontSize:13, fontWeight:600, color:C.text, marginBottom:2 }}>{title}</div>
-                <div style={{ fontSize:11, color:C.muted }}>{desc}</div>
-              </div>
-              <div onClick={()=>setAlerts(a=>({...a,[key]:!a[key]}))} style={{ width:44, height:26, borderRadius:13, background:alerts[key]?C.accent:"#2a3f5f", position:"relative", cursor:"pointer", transition:"background 0.2s", flexShrink:0 }}>
-                <div style={{ width:20, height:20, borderRadius:10, background:"#fff", position:"absolute", top:3, left:alerts[key]?21:3, transition:"left 0.2s" }}/>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Plans & Pricing */}
-        <div style={{ marginBottom:24 }}>
-          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10 }}>PLAN & PRICING</div>
-          <div style={{ background:C.card, borderRadius:14, border:`1px solid ${C.border}`, overflow:"hidden" }}>
-            {[
-              { id:"free", label:"Free", desc:"Track up to 2 flights", price:"$0", color:C.soft },
-              { id:"pro", label:"Pro", desc:"Unlimited flights + all features", price:"$19.99/yr", color:C.accent },
-              { id:"corporate", label:"Corporate", desc:"Team dashboard + expenses", price:"From $6/seat/mo", color:C.purple },
-            ].map((plan,i)=>(
-              <div key={plan.id} style={{ display:"flex", alignItems:"center", gap:12, padding:"13px 16px", borderBottom:i<2?`1px solid ${C.border}`:"none", background:accountType===plan.id?`${plan.color}08`:"transparent" }}>
-                <div style={{ width:10, height:10, borderRadius:5, border:`2px solid ${plan.color}`, background:accountType===plan.id?plan.color:"transparent", flexShrink:0 }}/>
-                <div style={{ flex:1 }}>
-                  <div style={{ fontSize:13, fontWeight:700, color:accountType===plan.id?plan.color:C.text }}>{plan.label}</div>
-                  <div style={{ fontSize:11, color:C.muted }}>{plan.desc}</div>
-                </div>
-                <div style={{ fontSize:12, fontWeight:700, color:plan.color, fontFamily:C.mono }}>{plan.price}</div>
-              </div>
-            ))}
-          </div>
-          {accountType!=="pro"&&accountType!=="corporate"&&(
-            <div onClick={()=>alert("Opening Pro checkout ($19.99/yr)...")} style={{ background:`linear-gradient(135deg,${C.accent},#007aaa)`, borderRadius:11, padding:"12px 0", textAlign:"center", fontWeight:800, fontSize:13, color:"#000", cursor:"pointer", marginTop:10 }}>
-              Upgrade to Pro →
-            </div>
-          )}
-          {accountType!=="corporate"&&(
-            <div onClick={()=>alert("Opening Corporate pricing page...")} style={{ background:`linear-gradient(135deg,${C.purple},#7c3aed)`, borderRadius:11, padding:"12px 0", textAlign:"center", fontWeight:800, fontSize:13, color:"#fff", cursor:"pointer", marginTop:8 }}>
-              See Corporate Plans →
-            </div>
-          )}
-        </div>
-
-        {/* Plans & Pricing */}
-        <div style={{ marginBottom:24 }}>
-          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10 }}>PLAN & PRICING</div>
-          <div style={{ background:C.card, borderRadius:14, border:`1px solid ${C.border}`, overflow:"hidden" }}>
-            {[
-              { id:"personal", label:"Free", desc:"Track up to 2 flights", price:"$0", color:C.soft },
-              { id:"pro", label:"Pro", desc:"Unlimited flights + all features", price:"$19.99/yr", color:C.accent },
-              { id:"corporate", label:"Corporate", desc:"Team dashboard + expenses", price:"From $6/seat/mo", color:C.purple },
-            ].map((plan,i)=>(
-              <div key={plan.id} style={{ display:"flex", alignItems:"center", gap:12, padding:"13px 16px", borderBottom:i<2?`1px solid ${C.border}`:"none", background:accountType===plan.id?`${plan.color}10`:"transparent" }}>
-                <div style={{ width:10, height:10, borderRadius:5, border:`2px solid ${plan.color}`, background:accountType===plan.id?plan.color:"transparent", flexShrink:0 }}/>
-                <div style={{ flex:1 }}>
-                  <div style={{ fontSize:13, fontWeight:700, color:accountType===plan.id?plan.color:C.text }}>{plan.label}</div>
-                  <div style={{ fontSize:11, color:C.muted }}>{plan.desc}</div>
-                </div>
-                <div style={{ fontSize:11, fontWeight:700, color:plan.color, fontFamily:C.mono }}>{plan.price}</div>
-              </div>
-            ))}
-          </div>
-          {accountType==="personal"&&(
-            <div onClick={()=>alert("Opening Pro checkout — $19.99/yr")} style={{ background:`linear-gradient(135deg,${C.accent},#007aaa)`, borderRadius:11, padding:"12px 0", textAlign:"center", fontWeight:800, fontSize:13, color:"#000", cursor:"pointer", marginTop:10 }}>
-              Upgrade to Pro →
-            </div>
-          )}
-          <div onClick={()=>alert("Opening Corporate pricing...")} style={{ background:`linear-gradient(135deg,${C.purple},#7c3aed)`, borderRadius:11, padding:"12px 0", textAlign:"center", fontWeight:700, fontSize:13, color:"#fff", cursor:"pointer", marginTop:8 }}>
-            {accountType==="corporate"?"Manage Corporate Plan →":"See Corporate Plans →"}
-          </div>
-        </div>
-
-        {/* Feature requests */}
-        <div style={{ marginBottom:24 }}>
-          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:6 }}>WHAT WOULD YOU LIKE TO SEE NEXT?</div>
-          <div style={{ fontSize:12, color:C.soft, marginBottom:12 }}>Vote for features or suggest your own — we read every one.</div>
-          {[
-            ["🗺️","Live flight map","See your plane's position on a map in real time"],
-            ["🔔","SMS alerts","Text when your flight is cancelled or delayed"],
-            ["🎒","Bag tracking","Know where your checked luggage is at all times"],
-            ["🏨","Hotel integration","Add hotel bookings alongside your flights"],
-            ["🚗","Rental car","Track pickup times and return deadlines"],
-            ["💳","Points & miles","See your loyalty points update after each flight"],
-            ["🤖","AI trip assistant","Ask questions about your trip, get instant answers"],
-            ["🌍","Offline mode","Access your trip info without internet"],
-          ].map(([icon,title,desc])=>{
-            const [voted,setVoted] = useState(false);
-            return (
-              <div key={title} style={{ display:"flex", alignItems:"center", gap:12, padding:"11px 0", borderBottom:`1px solid ${C.border}` }}>
-                <span style={{ fontSize:20, flexShrink:0 }}>{icon}</span>
-                <div style={{ flex:1 }}>
-                  <div style={{ fontSize:13, fontWeight:600, color:C.text, marginBottom:2 }}>{title}</div>
-                  <div style={{ fontSize:11, color:C.muted }}>{desc}</div>
-                </div>
-                <div onClick={()=>setVoted(v=>!v)} style={{ background:voted?"rgba(0,232,122,0.12)":C.surface, border:`1.5px solid ${voted?"rgba(0,232,122,0.4)":C.border}`, borderRadius:20, padding:"5px 12px", cursor:"pointer", display:"flex", alignItems:"center", gap:5, flexShrink:0, transition:"all 0.2s" }}>
-                  <span style={{ fontSize:12 }}>{voted?"❤️":"🤍"}</span>
-                  <span style={{ fontSize:11, fontWeight:700, color:voted?C.green:C.soft }}>{voted?"Voted":"Vote"}</span>
-                </div>
-              </div>
-            );
-          })}
-          <div style={{ marginTop:14 }}>
-            <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:1, marginBottom:8 }}>YOUR OWN IDEA</div>
-            <textarea placeholder="Tell us what you'd love to see in My Runway..."
-              style={{ width:"100%", background:C.card, border:`1.5px solid ${C.border}`, borderRadius:12, padding:"12px 14px", color:C.text, fontSize:13, outline:"none", boxSizing:"border-box", resize:"none", height:80, fontFamily:C.sans }}
-              onFocus={e=>e.target.style.borderColor=C.accent}
-              onBlur={e=>e.target.style.borderColor=C.border}
-            />
-            <div onClick={()=>alert("Thanks for the suggestion! We read every one. 🙏")} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:11, padding:"11px 0", textAlign:"center", fontWeight:700, fontSize:13, color:C.soft, cursor:"pointer", marginTop:8 }}>
-              Send Suggestion →
-            </div>
-          </div>
-        </div>
-
-        <div onClick={save} style={{ background:saved?C.green:`linear-gradient(135deg,${C.accent},#007aaa)`, borderRadius:14, padding:"15px 0", textAlign:"center", fontWeight:800, fontSize:15, color:"#000", cursor:"pointer" }}>
-          {saved?"✅ Saved!":"Save Settings"}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── SCREENS ────────────────────────────────────────────────────
-
-function FlightsScreen({ onTap, onAdd, leaveState, setLeaveState, navIdx, setNavIdx, homeAddress }) {
-  const lc = LEAVE_CFG[leaveState];
-  const app = NAV_APPS[navIdx];
-  const [showAll, setShowAll] = useState(false);
-  const [showExtras, setShowExtras] = useState(false);
-
-  // ── Smart flight progression ──────────────────────────────────
-  // Find the next upcoming flight based on today's date
-  const now = new Date();
-  const upcoming = FLIGHTS.filter(f => new Date(f.sortDate) > now);
-  const completed = FLIGHTS.filter(f => new Date(f.sortDate) <= now || f.status === "Landed");
-  const nextFlight = upcoming[0] || null; // The hero — next flight
-  const remainingFlights = upcoming.slice(1); // Everything after the next flight
-
-  // Group label for next flight
-  const nextLabel = nextFlight
-    ? nextFlight.trip === "outbound"
-      ? `OUTBOUND · JUN 14`
-      : `RETURN · JUL 2`
-    : null;
-
-  function renderFlightGroup(flights, showAll, setShowAll) {
-    return flights.map((f, i) => (
-      <div key={f.id}>
-        {/* Connection bridge BEFORE this flight — describes getting from previous flight to this one */}
-        {f.conn && (i === 0 || showAll) && <ConnBridge conn={f.conn}/>}
-        {(i === 0 || showAll) && <FlightCard f={f} onTap={onTap}/>}
-        {i === 0 && !showAll && flights.length > 1 && (
-          <div onClick={()=>setShowAll(true)} style={{ background:C.surface, borderRadius:12, border:`1px dashed ${C.border}`, padding:"10px 16px", marginBottom:10, display:"flex", alignItems:"center", justifyContent:"space-between", cursor:"pointer" }}>
-            <span style={{ fontSize:12, color:C.soft, fontFamily:C.mono }}>+ {flights.length-1} more connecting flight</span>
-            <span style={{ fontSize:11, color:C.accent, fontFamily:C.mono }}>show ▼</span>
-          </div>
-        )}
-      </div>
-    ));
-  }
-
-  return (
-    <div style={{ padding:"14px 14px 100px" }}>
-      {/* ── Slim protection banner ── */}
-      <div style={{ display:"flex", alignItems:"center", gap:9, background:"rgba(0,232,122,0.07)", borderRadius:12, border:"1px solid rgba(0,232,122,0.22)", padding:"10px 14px", marginBottom:14 }}>
-        <div style={{ position:"relative", width:10, height:10, flexShrink:0 }}>
-          <div style={{ position:"absolute", inset:0, borderRadius:5, background:C.green, animation:"pulse 2s infinite" }}/>
-        </div>
-        <span style={{ fontSize:12, fontWeight:700, color:C.green }}>All flights protected</span>
-        <span style={{ fontSize:11, color:C.soft }}>· checking every 15 min</span>
-        <style>{`@keyframes pulse{0%{transform:scale(1);opacity:1}50%{transform:scale(1.6);opacity:0.4}100%{transform:scale(1);opacity:1}}`}</style>
-      </div>
-
-      {/* ── Completed flights (collapsed, above next flight) ── */}
-      {completed.length > 0 && (
-        <div style={{ marginBottom:14 }}>
-          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
-            <div style={{ flex:1, height:1, background:C.border }}/>
-            <span style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:1 }}>COMPLETED</span>
-            <div style={{ flex:1, height:1, background:C.border }}/>
-          </div>
-          {completed.map(f=>(
-            <div key={f.id} style={{ background:C.surface, borderRadius:12, border:`1px solid ${C.border}`, padding:"10px 14px", marginBottom:8, display:"flex", alignItems:"center", gap:10, opacity:0.6 }}>
-              <span style={{ fontSize:18 }}>✅</span>
-              <div style={{ flex:1 }}>
-                <div style={{ fontSize:13, fontWeight:700, color:C.text, fontFamily:C.mono }}>{f.iata}</div>
-                <div style={{ fontSize:11, color:C.muted }}>{f.dep} → {f.arr} · {f.date}</div>
-              </div>
-              <div style={{ fontSize:11, color:C.green, fontFamily:C.mono, fontWeight:700 }}>Landed ✓</div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* ── NEXT FLIGHT — the hero ── */}
-      {nextFlight ? (
-        <>
-          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:12 }}>
-            <div style={{ background:`linear-gradient(135deg,${C.accent},#007aaa)`, borderRadius:20, padding:"4px 12px" }}>
-              <span style={{ fontSize:10, fontWeight:800, color:"#000", fontFamily:C.mono, letterSpacing:1 }}>NEXT FLIGHT UP</span>
-            </div>
-            <span style={{ fontSize:10, color:C.muted, fontFamily:C.mono }}>{nextLabel}</span>
-          </div>
-          <FlightCard f={nextFlight} onTap={onTap}/>
-
-          {/* ── Remaining flights after the hero ── */}
-          {remainingFlights.length > 0 && (
-            <div style={{ marginTop:16 }}>
-              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:12 }}>
-                <div style={{ flex:1, height:1, background:C.border }}/>
-                <span style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:1 }}>COMING UP</span>
-                <div style={{ flex:1, height:1, background:C.border }}/>
-              </div>
-              {remainingFlights.map(f => (
-                <div key={f.id}>
-                  {f.conn && <ConnBridge conn={f.conn}/>}
-                  <FlightCard f={f} onTap={onTap}/>
-                </div>
-              ))}
-            </div>
-          )}
-        </>
-      ) : (
-        <div style={{ background:C.card, borderRadius:16, border:`1px solid ${C.border}`, padding:"32px", textAlign:"center" }}>
-          <div style={{ fontSize:40, marginBottom:12 }}>🎉</div>
-          <div style={{ fontSize:18, fontWeight:800, color:C.text, marginBottom:8 }}>All flights completed!</div>
-          <div style={{ fontSize:13, color:C.soft }}>You're home. Add your next trip to start tracking.</div>
-          <div onClick={onAdd} style={{ background:`linear-gradient(135deg,${C.accent},#007aaa)`, borderRadius:12, padding:"12px 0", marginTop:20, cursor:"pointer" }}>
-            <span style={{ fontSize:14, fontWeight:800, color:"#000" }}>+ Add Next Trip</span>
-          </div>
-        </div>
-      )}
-
-      {/* Leave by card */}
-      <div style={{ background:C.card, borderRadius:20, border:`1px solid ${lc.br}`, overflow:"hidden", marginBottom:14 }}>
-        <div onClick={()=>setLeaveState(s=>s==="later"?"soon":s==="soon"?"now":"later")} style={{ background:lc.bg, padding:"13px 16px", display:"flex", alignItems:"center", gap:10, cursor:"pointer", borderBottom:`1px solid ${lc.br}` }}>
-          <span style={{ fontSize:22 }}>{lc.icon}</span>
-          <div style={{ flex:1 }}>
-            <div style={{ fontSize:12, fontWeight:800, color:lc.c, letterSpacing:1.5, fontFamily:C.mono }}>{lc.label}</div>
-            <div style={{ fontSize:13, color:C.soft }}>{lc.sub}</div>
-          </div>
-          <span style={{ fontSize:10, color:lc.c, fontFamily:C.mono, border:`1px solid ${lc.br}`, borderRadius:5, padding:"3px 8px" }}>TAP DEMO</span>
-        </div>
-        <div style={{ padding:"16px" }}>
-          <div style={{ fontSize:11, color:C.muted, letterSpacing:2, fontFamily:C.mono, fontWeight:700, marginBottom:4, textAlign:"center" }}>LEAVE HOME BY</div>
-          <div style={{ fontFamily:C.display, fontSize:64, color:lc.c, lineHeight:1, letterSpacing:2, marginBottom:16, textAlign:"center" }}>{lc.time}</div>
-          <div style={{ display:"flex", background:C.surface, borderRadius:12, overflow:"hidden", marginBottom:14, border:`1px solid ${C.border}` }}>
-            {[["🚗","Drive","45 min"],["🚦","Traffic","+15m"],["📍","Dist","28 mi"],["✈️","Buffer","3h"]].map(([icon,label,val],i)=>(
-              <div key={label} style={{ flex:1, padding:"11px 0", textAlign:"center", borderRight:i<3?`1px solid ${C.border}`:"none" }}>
-                <div style={{ fontSize:18, marginBottom:3 }}>{icon}</div>
-                <div style={{ fontSize:9, color:C.muted, fontFamily:C.mono, letterSpacing:0.8, marginBottom:2 }}>{label}</div>
-                <div style={{ fontSize:13, fontWeight:700, fontFamily:C.mono, color:label==="Traffic"?C.yellow:C.text }}>{val}</div>
-              </div>
-            ))}
-          </div>
-          <div style={{ display:"flex", alignItems:"center", gap:10, background:C.surface, borderRadius:11, padding:"11px 14px", marginBottom:14, border:`1px solid ${C.border}` }}>
-            <span style={{ fontSize:20 }}>🏠</span>
-            <div style={{ flex:1 }}>
-              <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:1.5, marginBottom:2 }}>FROM</div>
-              <div style={{ fontSize:14, color:C.text, fontWeight:600 }}>{homeAddress||"Set your home address"}</div>
-            </div>
-            <span style={{ fontSize:13, color:C.accent, cursor:"pointer" }}>Change</span>
-          </div>
-          <div onClick={()=>alert(`Opening ${app.label} → Miami International Airport (MIA)`)} style={{ background:`linear-gradient(135deg,${app.color},${app.color}bb)`, borderRadius:14, padding:"15px 0", display:"flex", alignItems:"center", justifyContent:"center", gap:10, cursor:"pointer" }}>
-            <NavLogo app={app} size={22}/>
-            <span style={{ fontSize:15, fontWeight:800, color:"#000" }}>Get Directions in {app.label}</span>
-          </div>
-          <div style={{ textAlign:"center", marginTop:8 }}>
-            <span style={{ fontSize:11, color:C.muted }}>Using {app.label} · </span>
-            <span onClick={()=>alert("Change your navigation app in ⚙️ Settings → Preferred Navigation App")} style={{ fontSize:11, color:C.accent, cursor:"pointer" }}>Change in Settings</span>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Trip Extras (collapsible to reduce clutter) ── */}
-      <div onClick={()=>setShowExtras(o=>!o)} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginTop:4, marginBottom:showExtras?12:14, cursor:"pointer", background:C.surface, borderRadius:14, border:`1px solid ${C.border}`, padding:"13px 16px" }}>
-        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-          <span style={{ fontSize:18 }}>🎫</span>
-          <span style={{ fontSize:13, fontWeight:700, color:C.text }}>Check-in & Carbon</span>
-        </div>
-        <span style={{ fontSize:14, color:C.accent }}>{showExtras?"▲":"▼"}</span>
-      </div>
-
-      {showExtras&&<>
-      {/* ── Check-in Reminder Card ── */}
-      <div style={{ background:"rgba(0,200,240,0.07)", borderRadius:18, border:"1px solid rgba(0,200,240,0.25)", padding:16, marginBottom:14 }}>
-        <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12 }}>
-          <span style={{ fontSize:22 }}>🎫</span>
-          <div style={{ flex:1 }}>
-            <div style={{ fontSize:14, fontWeight:800, color:C.accent, marginBottom:2 }}>Check-in Opens Soon!</div>
-            <div style={{ fontSize:12, color:C.soft }}>LY 018 · MIA → TLV · Sun Jun 14</div>
-          </div>
-          <div style={{ background:"rgba(0,200,240,0.15)", borderRadius:8, padding:"4px 10px", border:"1px solid rgba(0,200,240,0.3)" }}>
-            <span style={{ fontSize:10, color:C.accent, fontFamily:C.mono, fontWeight:700 }}>24H ALERT</span>
-          </div>
-        </div>
-        <div style={{ display:"flex", gap:8 }}>
-          <div onClick={()=>alert("Opening elal.com check-in for LY 018...\n\nIn the live app this opens the airline check-in page directly!")} style={{ flex:1, background:`linear-gradient(135deg,${C.accent},#007aaa)`, borderRadius:11, padding:"11px 0", textAlign:"center", cursor:"pointer" }}>
-            <span style={{ fontSize:13, fontWeight:800, color:"#000" }}>Check In Now →</span>
-          </div>
-          <div onClick={()=>alert("Reminder set! We'll notify you when check-in opens.")} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:11, padding:"11px 14px", textAlign:"center", cursor:"pointer" }}>
-            <span style={{ fontSize:13, color:C.soft }}>🔔</span>
-          </div>
-        </div>
-      </div>
-
-      {/* ── CO2 Carbon Tracker ── */}
-      <div style={{ background:"rgba(0,232,122,0.06)", borderRadius:18, border:"1px solid rgba(0,232,122,0.2)", padding:16, marginBottom:14 }}>
-        <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:12 }}>
-          <span style={{ fontSize:20 }}>🌱</span>
-          <div style={{ flex:1 }}>
-            <div style={{ fontSize:13, fontWeight:800, color:C.green }}>Trip Carbon Footprint</div>
-            <div style={{ fontSize:11, color:C.soft }}>Israel family trip · 3 flights · 6 passengers</div>
-          </div>
-        </div>
-        <div style={{ display:"flex", gap:8, marginBottom:10 }}>
-          {[["✈️ MIA→TLV","890 kg"],["✈️ TLV→ZRH","312 kg"],["✈️ ZRH→MIA","756 kg"]].map(([leg,co2])=>(
-            <div key={leg} style={{ flex:1, background:C.surface, borderRadius:9, padding:"8px 4px", textAlign:"center", border:`1px solid ${C.border}` }}>
-              <div style={{ fontSize:9, color:C.soft, marginBottom:3 }}>{leg}</div>
-              <div style={{ fontSize:11, fontWeight:800, color:C.green, fontFamily:C.mono }}>{co2}</div>
-            </div>
-          ))}
-        </div>
-        <div style={{ background:C.surface, borderRadius:11, padding:"10px 14px", border:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-          <div>
-            <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, marginBottom:2 }}>TOTAL · 6 PASSENGERS</div>
-            <div style={{ fontSize:18, fontWeight:800, color:C.green, fontFamily:C.mono }}>11,748 kg CO₂</div>
-          </div>
-          <div onClick={()=>alert("Opening carbon offset options...\n\nIn the live app this connects to a carbon offset provider like Gold Standard or Terrapass.")} style={{ background:"rgba(0,232,122,0.1)", border:"1px solid rgba(0,232,122,0.3)", borderRadius:10, padding:"8px 12px", cursor:"pointer" }}>
-            <div style={{ fontSize:11, fontWeight:700, color:C.green }}>Offset It 🌳</div>
-          </div>
-        </div>
-      </div>
-      </>}
-
-      <div onClick={onAdd} style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:8, background:C.surface, borderRadius:14, border:`1px dashed ${C.border}`, padding:"15px 0", cursor:"pointer" }}>
-        <span style={{ fontSize:20, color:C.soft }}>+</span>
-        <span style={{ fontSize:14, fontWeight:700, color:C.soft }}>Add another flight</span>
-      </div>
-    </div>
-  );
-}
-
-function WeatherScreen() {
-  const airports = [];
-  FLIGHTS.forEach(f=>{
-    if(!airports.find(a=>a.code===f.dep)) airports.push({code:f.dep,type:"dep",wx:f.wx?.dep,flight:f.iata});
-    if(!airports.find(a=>a.code===f.arr)) airports.push({code:f.arr,type:"arr",wx:f.wx?.arr,flight:f.iata});
-  });
-  return (
-    <div style={{ padding:"14px 14px 100px" }}>
-      <div style={{ background:C.card, borderRadius:16, border:`1px solid ${C.border}`, padding:"14px 16px", marginBottom:16 }}>
-        <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:12 }}>YOUR ROUTE</div>
-        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-around", flexWrap:"wrap", gap:8 }}>
-          {airports.map((a,i)=>{ const w=a.wx; if(!w) return null; return (
-            <div key={a.code} style={{ display:"flex", alignItems:"center" }}>
-              <div style={{ textAlign:"center" }}>
-                <span style={{ fontSize:28 }}>{w.icon}</span>
-                <div style={{ fontSize:16, fontWeight:800, color:C.text, fontFamily:C.mono, marginTop:3 }}>{a.code}</div>
-                <div style={{ fontSize:14, fontWeight:700, color:C.text }}>{w.temp}°F</div>
-              </div>
-              {i<airports.length-1&&<span style={{ fontSize:16, color:C.muted, padding:"0 8px" }}>→</span>}
-            </div>
-          );})}
-        </div>
-      </div>
-      {airports.map(a=>{ const w=a.wx; if(!w) return null; return (
-        <div key={a.code} style={{ background:C.card, borderRadius:18, border:`1px solid ${C.border}`, padding:18, marginBottom:12 }}>
-          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:1.5, marginBottom:12 }}>{a.type==="dep"?"🛫 DEPARTING FROM":"🛬 ARRIVING INTO"} · {a.flight}</div>
-          <div style={{ display:"flex", alignItems:"center", gap:16, marginBottom:14 }}>
-            <span style={{ fontSize:48 }}>{w.icon}</span>
-            <div>
-              <div style={{ fontSize:44, fontFamily:C.display, color:C.text, lineHeight:1, marginBottom:4 }}>{w.temp}°F</div>
-              <div style={{ fontSize:15, color:C.soft }}>{w.cond}</div>
-              <div style={{ fontSize:13, color:C.muted }}>💨 {w.wind}mph wind</div>
-            </div>
-          </div>
-          <div style={{ background:"rgba(0,232,122,0.08)", borderRadius:11, padding:"11px 14px", border:"1px solid rgba(0,232,122,0.2)", display:"flex", alignItems:"center", gap:10 }}>
-            <span style={{ fontSize:18 }}>✅</span>
-            <div style={{ fontSize:13, color:C.soft }}>{w.note}</div>
-          </div>
-        </div>
-      );})}
     </div>
   );
 }
 
 function FamilyScreen() {
   const [sel, setSel] = useState(null);
-  const [people, setPeople] = useState([
+  const [people] = useState([
     { name:"Mom", initials:"M", color:"#a78bfa", flight:"DL 204", dep:"ATL", arr:"JFK", status:"On Time", eta:"4:20 PM" },
     { name:"Jake", initials:"J", color:"#00e87a", flight:"SW 881", dep:"ORD", arr:"LAX", status:"Departed", eta:"3:15 PM" },
     { name:"Sarah", initials:"S", color:"#ff5c2b", flight:"BA 178", dep:"LHR", arr:"JFK", status:"Delayed", eta:"8:00 PM" },
   ]);
-  const [showAdd, setShowAdd] = useState(false);
-  const [newName, setNewName] = useState("");
-  const [newFlight, setNewFlight] = useState("");
-
-  function addPerson() {
-    if (!newName.trim()||!newFlight.trim()) return;
-    const colors=["#00c8f0","#ffc800","#a78bfa","#ff5c2b","#00e87a"];
-    setPeople(p=>[...p,{ name:newName, initials:newName.slice(0,2).toUpperCase(), color:colors[p.length%colors.length], flight:newFlight.toUpperCase(), dep:"???", arr:"???", status:"Scheduled", eta:"TBD" }]);
-    setNewName(""); setNewFlight(""); setShowAdd(false);
-  }
-
   return (
     <div style={{ padding:"14px 14px 100px" }}>
-      <div onClick={()=>setShowAdd(s=>!s)} style={{ display:"flex", alignItems:"center", gap:12, background:C.card, borderRadius:16, border:`1px dashed ${C.border}`, padding:"16px", marginBottom:14, cursor:"pointer" }}>
-        <div style={{ width:46, height:46, borderRadius:23, background:C.surface, border:`2px dashed ${C.border}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22 }}>+</div>
-        <div>
-          <div style={{ fontSize:15, fontWeight:700, color:C.soft }}>Add family member</div>
-          <div style={{ fontSize:13, color:C.muted }}>Track their flights alongside yours</div>
-        </div>
+      <div style={{ fontSize:11, color:C.muted, marginBottom:10 }}>Sample family members (demo data).</div>
+      <div onClick={()=>notify("Adding family members is coming soon")} style={{ display:"flex", alignItems:"center", gap:12, background:C.card, borderRadius:16, border:`1px dashed ${C.border}`, padding:"16px", marginBottom:14, cursor:"pointer" }}>
+        <div style={{ width:46, height:46, borderRadius:23, background:C.surface, border:`2px dashed ${C.border}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, color:C.soft }}>+</div>
+        <div><div style={{ fontSize:15, fontWeight:700, color:C.soft }}>Add family member</div><div style={{ fontSize:13, color:C.muted }}>Track their flights alongside yours</div></div>
       </div>
-
-      {showAdd&&(
-        <div style={{ background:C.card, borderRadius:16, border:`1px solid ${C.accent}40`, padding:"16px", marginBottom:14 }}>
-          <div style={{ fontSize:13, fontWeight:700, color:C.text, marginBottom:12 }}>Add a person</div>
-          <input value={newName} onChange={e=>setNewName(e.target.value)} placeholder="Name (e.g. Mom)" style={{ width:"100%", background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"10px 14px", color:C.text, fontSize:14, outline:"none", boxSizing:"border-box", marginBottom:8 }}/>
-          <input value={newFlight} onChange={e=>setNewFlight(e.target.value)} placeholder="Flight number (e.g. AA 100)" style={{ width:"100%", background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"10px 14px", color:C.text, fontSize:14, outline:"none", boxSizing:"border-box", marginBottom:12, fontFamily:C.mono }}/>
-          <div style={{ display:"flex", gap:8 }}>
-            <div onClick={addPerson} style={{ flex:1, background:`linear-gradient(135deg,${C.accent},#007aaa)`, borderRadius:10, padding:"11px 0", textAlign:"center", fontWeight:800, fontSize:14, color:"#000", cursor:"pointer" }}>Add</div>
-            <div onClick={()=>setShowAdd(false)} style={{ flex:1, background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"11px 0", textAlign:"center", fontWeight:700, fontSize:14, color:C.soft, cursor:"pointer" }}>Cancel</div>
-          </div>
-        </div>
-      )}
-
       {people.map((p,i)=>{ const s=sc(p.status); const isSel=sel===i; return (
         <div key={i} onClick={()=>setSel(isSel?null:i)} style={{ background:C.card, borderRadius:18, border:`1px solid ${isSel?p.color+"55":C.border}`, padding:"16px", marginBottom:10, cursor:"pointer" }}>
           <div style={{ display:"flex", alignItems:"center", gap:14, marginBottom:isSel?14:0 }}>
             <div style={{ width:50, height:50, borderRadius:25, background:`${p.color}22`, border:`2px solid ${p.color}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, fontWeight:800, color:p.color, fontFamily:C.mono, flexShrink:0 }}>{p.initials}</div>
-            <div style={{ flex:1 }}>
-              <div style={{ fontSize:17, fontWeight:800, color:C.text }}>{p.name}</div>
-              <div style={{ fontSize:13, color:C.soft, fontFamily:C.mono }}>{p.flight} · {p.dep} → {p.arr}</div>
-            </div>
-            <div style={{ textAlign:"right" }}>
-              <div style={{ background:s.bg, border:`1px solid ${s.br}`, borderRadius:20, padding:"4px 11px", fontSize:11, color:s.c, fontWeight:700, fontFamily:C.mono, marginBottom:4 }}>{p.status}</div>
-              <div style={{ fontSize:12, color:C.muted }}>ETA {p.eta}</div>
-            </div>
+            <div style={{ flex:1 }}><div style={{ fontSize:17, fontWeight:800, color:C.text }}>{p.name}</div><div style={{ fontSize:13, color:C.soft, fontFamily:C.mono }}>{p.flight} · {p.dep} → {p.arr}</div></div>
+            <div style={{ textAlign:"right" }}><div style={{ background:s.bg, border:`1px solid ${s.br}`, borderRadius:20, padding:"4px 11px", fontSize:11, color:s.c, fontWeight:700, fontFamily:C.mono, marginBottom:4 }}>{p.status}</div><div style={{ fontSize:12, color:C.muted }}>ETA {p.eta}</div></div>
           </div>
           {isSel&&(
             <div style={{ display:"flex", gap:8 }}>
-              <div onClick={e=>{e.stopPropagation();alert(`Live tracking link for ${p.name}:\nmyrunwayapp.co/t/abc123k\n\nThey can open this in any browser — no app needed!`);}} style={{ flex:1, background:"rgba(0,200,240,0.08)", border:"1px solid rgba(0,200,240,0.2)", borderRadius:11, padding:"13px 0", textAlign:"center", cursor:"pointer" }}>
-                <span style={{ fontSize:14, fontWeight:700, color:C.accent }}>🔗 Send Live Link</span>
-              </div>
-              <div onClick={e=>{e.stopPropagation();alert(`Opening Google Maps for pickup route to ${p.arr} airport...`);}} style={{ flex:1, background:"rgba(0,232,122,0.08)", border:"1px solid rgba(0,232,122,0.2)", borderRadius:11, padding:"13px 0", textAlign:"center", cursor:"pointer" }}>
-                <span style={{ fontSize:14, fontWeight:700, color:C.green }}>🚗 Pickup Route</span>
-              </div>
-              <div onClick={e=>{e.stopPropagation();setPeople(p=>p.filter((_,j)=>j!==i));setSel(null);}} style={{ background:"rgba(255,58,84,0.08)", border:"1px solid rgba(255,58,84,0.2)", borderRadius:11, padding:"13px 14px", textAlign:"center", cursor:"pointer" }}>
-                <span style={{ fontSize:14, color:C.red }}>🗑️</span>
-              </div>
+              <div onClick={e=>{e.stopPropagation();notify(`Live links for ${p.name} need a shared trip link, which is coming soon`);}} style={{ flex:1, background:"rgba(0,200,240,0.08)", border:"1px solid rgba(0,200,240,0.2)", borderRadius:11, padding:"13px 0", textAlign:"center", cursor:"pointer" }}><span style={{ fontSize:14, fontWeight:700, color:C.accent }}>Send Live Link</span></div>
+              <div onClick={e=>{e.stopPropagation();window.open(navUrl(NAV_APPS[0], airport(p.arr)), "_blank", "noopener");}} style={{ flex:1, background:"rgba(0,232,122,0.08)", border:"1px solid rgba(0,232,122,0.2)", borderRadius:11, padding:"13px 0", textAlign:"center", cursor:"pointer" }}><span style={{ fontSize:14, fontWeight:700, color:C.green }}>Pickup Route</span></div>
             </div>
           )}
         </div>
@@ -1279,39 +1236,242 @@ function FamilyScreen() {
 }
 
 function PassportScreen() {
-  const p = { miles:124580, flights:47, airports:23, countries:8, streak:3, airline:"American Airlines", yr:{flights:12,miles:28400}, badges:["🌍 Globe Trotter","✈️ Jet Setter","🔗 Connection Pro","⚡ Early Bird"] };
-  const allBadges = [...p.badges, "🏆 Century Club","💼 Road Warrior","🌙 Night Owl","🥇 First Class","🔒 Mountain Explorer"];
+  const p = { miles:124580, flights:47, airports:23, countries:8, streak:3, airline:"American Airlines", badges:["x Globe Trotter","x Jet Setter","x Connection Pro","x Early Bird"] };
+  const allBadges = [...p.badges, "x Century Club","x Road Warrior","x Night Owl","x First Class","x Mountain Explorer"];
   return (
     <div style={{ padding:"14px 14px 100px" }}>
       <div style={{ background:"linear-gradient(135deg,rgba(0,200,240,0.1),rgba(255,92,43,0.06))", borderRadius:20, border:"1px solid rgba(0,200,240,0.2)", padding:"24px 18px", marginBottom:14, textAlign:"center" }}>
         <div style={{ fontSize:11, color:C.soft, fontFamily:C.mono, letterSpacing:2, marginBottom:6 }}>LIFETIME MILES</div>
         <div style={{ fontFamily:C.display, fontSize:58, color:C.accent, letterSpacing:4, lineHeight:1, marginBottom:6 }}>{p.miles.toLocaleString()}</div>
-        <div style={{ fontSize:14, color:C.soft }}>{Math.round(p.miles/24902)}× around the Earth 🌍</div>
+        <div style={{ fontSize:14, color:C.soft, display:"inline-flex", alignItems:"center", gap:6, justifyContent:"center" }}>{Math.round(p.miles/24902)}× around the Earth <StatIcon id="globe" color={C.soft} size={15}/></div>
       </div>
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:14 }}>
-        {[["✈️","Flights",p.flights],["🏛️","Airports",p.airports],["🌍","Countries",p.countries],["🔥","Streak",`${p.streak} trips`]].map(([icon,label,val])=>(
+        {[["plane","Flights",p.flights],["bank","Airports",p.airports],["globe","Countries",p.countries],["fire","Streak",`${p.streak} trips`]].map(([icon,label,val])=>(
           <div key={label} style={{ background:C.card, borderRadius:16, border:`1px solid ${C.border}`, padding:"18px", textAlign:"center" }}>
-            <div style={{ fontSize:28, marginBottom:8 }}>{icon}</div>
+            <div style={{ display:"flex", justifyContent:"center", marginBottom:10 }}><StatIcon id={icon} color={C.accent} size={26}/></div>
             <div style={{ fontFamily:C.display, fontSize:36, color:C.text, lineHeight:1, marginBottom:4 }}>{val}</div>
             <div style={{ fontSize:11, color:C.soft, fontFamily:C.mono, letterSpacing:1 }}>{label.toUpperCase()}</div>
           </div>
         ))}
       </div>
-      <div style={{ background:C.card, borderRadius:16, border:`1px solid ${C.border}`, padding:"16px", marginBottom:12 }}>
-        <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:12 }}>2026 SO FAR</div>
-        <div style={{ display:"flex", gap:24 }}>
-          <div><div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, marginBottom:4 }}>FLIGHTS</div><div style={{ fontSize:28, fontWeight:800, color:C.accent, fontFamily:C.mono }}>{p.yr.flights}</div></div>
-          <div><div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, marginBottom:4 }}>MILES</div><div style={{ fontSize:28, fontWeight:800, color:C.orange, fontFamily:C.mono }}>{p.yr.miles.toLocaleString()}</div></div>
-          <div style={{ flex:1 }}><div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, marginBottom:4 }}>TOP AIRLINE</div><div style={{ fontSize:13, fontWeight:700, color:C.text, marginTop:4 }}>{p.airline}</div></div>
-        </div>
-      </div>
       <div style={{ background:C.card, borderRadius:16, border:`1px solid ${C.border}`, padding:"16px" }}>
         <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:12 }}>ACHIEVEMENTS</div>
         <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
-          {p.badges.map(b=><div key={b} style={{ background:"rgba(167,139,250,0.1)", border:"1px solid rgba(167,139,250,0.25)", borderRadius:20, padding:"7px 14px", fontSize:13, color:C.purple, fontWeight:600 }}>{b}</div>)}
-          {allBadges.slice(p.badges.length).map(b=><div key={b} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:20, padding:"7px 14px", fontSize:13, color:C.muted, opacity:0.5 }}>🔒 {b.split(" ").slice(1).join(" ")}</div>)}
+          {p.badges.map(b=><div key={b} style={{ background:"rgba(167,139,250,0.1)", border:"1px solid rgba(167,139,250,0.25)", borderRadius:20, padding:"7px 14px", fontSize:13, color:C.purple, fontWeight:600 }}>{b.split(" ").slice(1).join(" ")}</div>)}
+          {allBadges.slice(p.badges.length).map(b=><div key={b} style={{ display:"inline-flex", alignItems:"center", gap:6, background:C.surface, border:`1px solid ${C.border}`, borderRadius:20, padding:"7px 14px", fontSize:13, color:C.muted, opacity:0.5 }}><StatIcon id="lock" color={C.muted} size={12}/> {b.split(" ").slice(1).join(" ")}</div>)}
         </div>
       </div>
+    </div>
+  );
+}
+
+function WalletScreen() {
+  const [active, setActive] = useState(0);
+  const passes = [
+    { id:"p1", airline:"El Al", code:"LY", flight:"LY 018", dep:"MIA", arr:"TLV", date:"Sun Jun 14", time:"2:30 PM", gate:"TBD", seat:"32A", boarding:"1:45 PM", group:"4", name:"SADOK/ASAF", conf:"8ZEH6P", color:"#003399" },
+    { id:"p2", airline:"El Al", code:"LY", flight:"LY 347", dep:"TLV", arr:"ZRH", date:"Thu Jul 2", time:"8:00 AM", gate:"TBD", seat:"18C", boarding:"7:15 AM", group:"3", name:"SADOK/ASAF", conf:"8ZEH6P", color:"#003399" },
+    { id:"p3", airline:"Swiss", code:"LX", flight:"LX 064", dep:"ZRH", arr:"MIA", date:"Thu Jul 2", time:"1:00 PM", gate:"TBD", seat:"24F", boarding:"12:15 PM", group:"2", name:"SADOK/ASAF", conf:"8ZEH6P", color:"#d52b1e" },
+  ];
+  const p = passes[active];
+  return (
+    <div style={{ padding:"14px 14px 100px" }}>
+      <div style={{ fontSize:13, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:12 }}>MOBILE BOARDING PASSES</div>
+      <div style={{ fontSize:11, color:C.soft, marginBottom:12, lineHeight:1.5, display:"flex", gap:6 }}><StatIcon id="info" color={C.soft} size={14}/><span>Sample passes (seats and barcode are placeholders, not valid for boarding). Real passes come from El Al and SWISS after check-in.</span></div>
+      <div style={{ display:"flex", gap:8, marginBottom:16, overflowX:"auto" }}>
+        {passes.map((pass,i)=>(<div key={pass.id} onClick={()=>setActive(i)} style={{ flexShrink:0, background:i===active?C.card:C.surface, border:`1px solid ${i===active?C.accent:C.border}`, borderRadius:10, padding:"8px 12px", cursor:"pointer" }}><div style={{ fontSize:12, fontWeight:800, color:i===active?C.accent:C.soft, fontFamily:C.mono }}>{pass.flight}</div><div style={{ fontSize:10, color:C.muted }}>{pass.dep}→{pass.arr}</div></div>))}
+      </div>
+      <div style={{ background:"#fff", borderRadius:20, overflow:"hidden", boxShadow:"0 8px 32px rgba(0,0,0,0.4)" }}>
+        <div style={{ background:p.color, padding:"16px 20px", display:"flex", alignItems:"center", justifyContent:"space-between", position:"relative", overflow:"hidden" }}>
+          <div style={{ position:"absolute", inset:0, backgroundImage:"repeating-linear-gradient(45deg,transparent,transparent 8px,rgba(255,255,255,0.04) 8px,rgba(255,255,255,0.04) 9px)", pointerEvents:"none" }}/>
+          <div style={{ color:"#fff", fontSize:18, fontWeight:700, fontFamily:"Georgia,serif", fontStyle:"italic", letterSpacing:1 }}>{p.airline}</div>
+          <div style={{ color:"rgba(255,255,255,0.9)", fontSize:12, fontFamily:"'Courier New',monospace", letterSpacing:2 }}>{p.flight}</div>
+        </div>
+        <div style={{ padding:"20px" }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:20 }}>
+            <div style={{ textAlign:"center" }}><div style={{ fontSize:36, fontWeight:800, color:"#111", fontFamily:C.mono, lineHeight:1 }}>{p.dep}</div><div style={{ fontSize:12, color:"#888", marginTop:4 }}>{p.time}</div></div>
+            <div style={{ flex:1, padding:"0 16px", textAlign:"center" }}><div style={{ display:"flex", justifyContent:"center" }}><StatIcon id="plane" color="#888" size={20}/></div><div style={{ height:2, background:"#ddd", margin:"4px 0" }}/><div style={{ fontSize:11, color:"#aaa" }}>{p.date}</div></div>
+            <div style={{ textAlign:"center" }}><div style={{ fontSize:36, fontWeight:800, color:"#111", fontFamily:C.mono, lineHeight:1 }}>{p.arr}</div><div style={{ fontSize:12, color:"#888", marginTop:4 }}>Arrival</div></div>
+          </div>
+          <div style={{ display:"flex", justifyContent:"space-between", padding:"14px 0", borderTop:"1px dashed #ddd", borderBottom:"1px dashed #ddd", marginBottom:16 }}>
+            {[["PASSENGER",p.name],["SEAT",p.seat],["GROUP",p.group]].map(([l,v])=>(<div key={l}><div style={{ fontSize:9, color:"#aaa", fontFamily:C.mono, marginBottom:2 }}>{l}</div><div style={{ fontSize:13, fontWeight:700, color:"#111" }}>{v}</div></div>))}
+          </div>
+          <div style={{ display:"flex", justifyContent:"space-between", marginBottom:16 }}>
+            {[["GATE",p.gate],["BOARDS",p.boarding],["CONF",p.conf]].map(([l,v])=>(<div key={l}><div style={{ fontSize:9, color:"#aaa", fontFamily:C.mono, marginBottom:2 }}>{l}</div><div style={{ fontSize:13, fontWeight:700, color:"#111", fontFamily:C.mono }}>{v}</div></div>))}
+          </div>
+          <div style={{ background:"#fff", borderRadius:10, padding:"12px", display:"flex", justifyContent:"center" }}>
+            <div style={{ display:"flex", gap:1.5, alignItems:"flex-end", height:60 }}>{Array.from({length:48}).map((_,i)=>(<div key={i} style={{ width:i%4===0?3:2, height:"100%", background:(i*7%3===0||i%5===0)?"#111":"#fff" }}/>))}</div>
+          </div>
+        </div>
+      </div>
+      <div style={{ display:"flex", gap:8, marginTop:16 }}>
+        <div onClick={()=>notify("Add the real pass from the airline app or check-in email")} style={{ flex:1, background:"#000", border:"1px solid #333", borderRadius:12, padding:"13px 0", textAlign:"center", cursor:"pointer" }}><span style={{ fontSize:13, fontWeight:700, color:"#fff" }}> Apple Wallet</span></div>
+        <div onClick={()=>notify("Add the real pass from the airline app or check-in email")} style={{ flex:1, background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:"13px 0", textAlign:"center", cursor:"pointer" }}><span style={{ fontSize:13, fontWeight:700, color:C.text }}>Google Wallet</span></div>
+      </div>
+    </div>
+  );
+}
+
+function LoungeScreen() {
+  const [airport, setAirport] = useState("MIA");
+  const airports = ["MIA","TLV","ZRH"];
+  const data = {
+    MIA:[{ name:"American Airlines Admirals Club", terminal:"Concourse D, near D15", access:[["Priority Pass",false],["AA membership",true],["Day pass $79",null]], hours:"5:00 AM – 9:00 PM", amenities:["Wi-Fi","Showers","Hot food"], rating:4.2 },{ name:"Amex Centurion Lounge", terminal:"Concourse D, near D12", access:[["Amex Platinum",true],["Day pass",false]], hours:"5:00 AM – 10:00 PM", amenities:["Premium dining","Cocktails","Spa"], rating:4.7 }],
+    TLV:[{ name:"El Al King David Lounge", terminal:"Terminal 3, Concourse C", access:[["El Al Matmid",true],["Business class",true]], hours:"24 hours", amenities:["Kosher dining","Showers","Wi-Fi"], rating:4.5 },{ name:"Dan Lounge", terminal:"Terminal 3, Level 3", access:[["Priority Pass",true],["Day pass $45",null]], hours:"24 hours", amenities:["Buffet","Bar","Kids area"], rating:4.1 }],
+    ZRH:[{ name:"Swiss Senator Lounge", terminal:"Airside E", access:[["Star Alliance Gold",true],["Swiss Business",true]], hours:"5:30 AM – 10:00 PM", amenities:["Fine dining","Whisky bar","Terrace"], rating:4.6 },{ name:"Aspire Lounge", terminal:"Airside E, Gate E45", access:[["Priority Pass",true],["Day pass CHF 55",null]], hours:"6:00 AM – 9:00 PM", amenities:["Wi-Fi","Snacks","Bar"], rating:4.0 }],
+  };
+  return (
+    <div style={{ padding:"14px 14px 100px" }}>
+      <div style={{ fontSize:9, color:C.muted, fontFamily:C.mono, letterSpacing:3, marginBottom:12, borderBottom:`1px solid ${C.border}`, paddingBottom:8 }}>VIP LOUNGE FINDER · LISTINGS ARE INDICATIVE, CHECK THE LOUNGE BEFORE YOU GO</div>
+      <div style={{ display:"flex", gap:8, marginBottom:16 }}>
+        {airports.map(a=>(<div key={a} onClick={()=>setAirport(a)} style={{ flex:1, background:a===airport?`linear-gradient(135deg,${C.accent},#007aaa)`:C.surface, border:`1px solid ${a===airport?C.accent:C.border}`, borderRadius:12, padding:"12px 0", textAlign:"center", cursor:"pointer" }}><div style={{ fontSize:18, fontWeight:800, color:a===airport?"#000":C.text, fontFamily:C.mono }}>{a}</div><div style={{ fontSize:9, color:a===airport?"#003355":C.muted }}>{a==="MIA"?"Miami":a==="TLV"?"Tel Aviv":"Zurich"}</div></div>))}
+      </div>
+      {data[airport].map((l,i)=>(
+        <div key={i} style={{ background:C.card, borderRadius:18, border:`1px solid ${C.border}`, padding:16, marginBottom:12 }}>
+          <div style={{ display:"flex", alignItems:"flex-start", gap:10, marginBottom:12 }}>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M6 3h12L12 11 6 3z" stroke={C.accent} strokeWidth="1.5" strokeLinejoin="round" fill="none"/><line x1="12" y1="11" x2="12" y2="19" stroke={C.accent} strokeWidth="1.5" strokeLinecap="round"/><line x1="8" y1="19" x2="16" y2="19" stroke={C.accent} strokeWidth="1.5" strokeLinecap="round"/></svg>
+            <div style={{ flex:1 }}><div style={{ fontSize:15, fontWeight:800, color:C.text, marginBottom:2 }}>{l.name}</div><div style={{ fontSize:11, color:C.soft, display:"flex", alignItems:"center", gap:4 }}><StatIcon id="pin" color={C.soft} size={11}/>{l.terminal}</div></div>
+            <div style={{ background:"rgba(0,232,122,0.1)", border:"1px solid rgba(0,232,122,0.25)", borderRadius:8, padding:"3px 8px", display:"flex", alignItems:"center", gap:3 }}><StatIcon id="star" color={C.green} size={12}/><span style={{ fontSize:11, color:C.green, fontWeight:700, fontFamily:C.mono }}>{l.rating}</span></div>
+          </div>
+          <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:1, marginBottom:6 }}>ACCESS</div>
+          <div style={{ display:"flex", flexWrap:"wrap", gap:5, marginBottom:12 }}>{l.access.map(([label,ok],j)=>(<span key={j} style={{ display:"inline-flex", alignItems:"center", gap:4, background:ok?"rgba(0,232,122,0.08)":C.surface, border:`1px solid ${ok?"rgba(0,232,122,0.25)":C.border}`, borderRadius:7, padding:"4px 9px", fontSize:11, color:ok?C.green:ok===false?C.muted:C.soft, textDecoration:ok===false?"line-through":"none" }}>{ok!==null&&<StatIcon id={ok?"check":"cross"} color={ok?C.green:C.muted} size={11}/>}{label}</span>))}</div>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", paddingTop:10, borderTop:`1px solid ${C.border}` }}><div style={{ fontSize:11, color:C.soft, display:"flex", alignItems:"center", gap:4 }}><StatIcon id="clock" color={C.soft} size={11}/>{l.hours}</div><div style={{ display:"flex", gap:5 }}>{l.amenities.slice(0,3).map((a,k)=>(<span key={k} style={{ fontSize:10, color:C.muted }}>{a}{k<2?" ·":""}</span>))}</div></div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SeatTrackerScreen({ onBack }) {
+  const flights = [{ iata:"LY 018", dep:"MIA", arr:"TLV", date:"Jun 14", seats:["32A","32B","32C"] },{ iata:"LY 347", dep:"TLV", arr:"ZRH", date:"Jul 2", seats:["18C","18D"] }];
+  const wishlist = [
+    { seat:"12A", cls:"Economy", type:"Window", desc:"Exit row — extra legroom", available:false, price:"Free" },
+    { seat:"14C", cls:"Economy", type:"Aisle", desc:"Near front, quick exit", available:true, price:"Free" },
+    { seat:"2A", cls:"Business", type:"Window", desc:"Lie-flat bed", available:false, price:"+$1,200" },
+  ];
+  return (
+    <div style={{ position:"fixed", inset:0, background:C.bg, zIndex:55, overflowY:"auto" }}>
+      <div style={{ background:"rgba(4,7,14,0.98)", borderBottom:`1px solid ${C.border}`, padding:"14px 16px", display:"flex", alignItems:"center", gap:10, position:"sticky", top:0 }}>
+        <div onClick={onBack} style={{ width:34, height:34, borderRadius:17, background:C.surface, border:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", fontSize:18, color:C.accent }}>←</div>
+        <div style={{ flex:1 }}><div style={{ fontSize:16, fontWeight:800, color:C.text }}>Seat Tracker</div><div style={{ fontSize:12, color:C.soft }}>We watch for better seats and alert you</div></div>
+        <div style={{ background:"rgba(0,232,122,0.1)", border:"1px solid rgba(0,232,122,0.25)", borderRadius:8, padding:"4px 10px", fontSize:10, fontWeight:700, color:C.green, fontFamily:C.mono }}>WATCHING</div>
+      </div>
+      <div style={{ padding:"16px 16px 100px" }}>
+        <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10 }}>YOUR CURRENT SEATS</div>
+        {flights.map(f=>(
+          <div key={f.iata} style={{ background:C.card, borderRadius:14, border:`1px solid ${C.border}`, padding:"14px 16px", marginBottom:10 }}>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+              <div><div style={{ fontSize:14, fontWeight:800, color:C.text, fontFamily:C.mono }}>{f.iata}</div><div style={{ fontSize:11, color:C.soft }}>{f.dep} → {f.arr} · {f.date}</div></div>
+              <div style={{ display:"flex", gap:5 }}>{f.seats.map(s=>(<div key={s} style={{ background:"rgba(0,200,240,0.1)", border:"1px solid rgba(0,200,240,0.3)", borderRadius:8, padding:"5px 9px", fontSize:12, fontWeight:800, color:C.accent, fontFamily:C.mono }}>{s}</div>))}</div>
+            </div>
+          </div>
+        ))}
+        <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10, marginTop:20 }}>WATCHING FOR BETTER SEATS</div>
+        {wishlist.map((s,i)=>(
+          <div key={i} style={{ background:C.card, borderRadius:14, border:`1px solid ${s.available?"rgba(0,232,122,0.3)":C.border}`, padding:"14px 16px", marginBottom:10 }}>
+            <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+              <div style={{ width:48, height:48, borderRadius:12, background:s.available?"rgba(0,232,122,0.12)":"rgba(255,255,255,0.05)", border:`2px solid ${s.available?"rgba(0,232,122,0.4)":C.border}`, display:"flex", alignItems:"center", justifyContent:"center" }}><div style={{ fontFamily:C.mono, fontSize:14, fontWeight:800, color:s.available?C.green:C.soft }}>{s.seat}</div></div>
+              <div style={{ flex:1 }}>
+                <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:3 }}><span style={{ fontSize:14, fontWeight:700, color:C.text }}>{s.type} · {s.cls}</span>{s.available&&<span style={{ background:"rgba(0,232,122,0.12)", border:"1px solid rgba(0,232,122,0.3)", borderRadius:20, padding:"2px 8px", fontSize:10, fontWeight:800, color:C.green, fontFamily:C.mono }}>OPEN NOW!</span>}</div>
+                <div style={{ fontSize:12, color:C.soft, marginBottom:2 }}>{s.desc}</div>
+                <div style={{ fontSize:12, color:s.price==="Free"?C.green:C.yellow, fontWeight:700 }}>{s.price}</div>
+              </div>
+              {s.available ? <div onClick={()=>notify(`Seat requests go through the airline. Open "Manage booking" and pick ${s.seat}`)} style={{ background:`linear-gradient(135deg,${C.green},#007a44)`, borderRadius:11, padding:"10px 14px", cursor:"pointer", flexShrink:0 }}><span style={{ fontSize:12, fontWeight:800, color:"#000" }}>Grab It →</span></div> : <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:11, padding:"10px 12px", flexShrink:0 }}><span style={{ fontSize:11, color:C.muted, display:"inline-flex", alignItems:"center", gap:4 }}>Watching <StatIcon id="eye" color={C.muted} size={12}/></span></div>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function VintageIcon({ id, size=26, color="#7a9ab8" }) {
+  const icons = {
+    flights: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 00-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z" fill={color}/></svg>),
+    wallet: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><rect x="2" y="5" width="20" height="14" rx="2" stroke={color} strokeWidth="1.8"/><path d="M2 9h20M16 14h2" stroke={color} strokeWidth="1.8" strokeLinecap="round"/><circle cx="17" cy="14" r="1" fill={color}/></svg>),
+    lounges: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M6 3h12L12 11 6 3z" stroke={color} strokeWidth="1.6" strokeLinejoin="round" fill="none"/><line x1="12" y1="11" x2="12" y2="19" stroke={color} strokeWidth="1.6" strokeLinecap="round"/><line x1="8" y1="19" x2="16" y2="19" stroke={color} strokeWidth="1.6" strokeLinecap="round"/></svg>),
+    passport: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><rect x="4" y="2" width="16" height="20" rx="2" stroke={color} strokeWidth="1.8"/><circle cx="12" cy="10" r="3" stroke={color} strokeWidth="1.5"/><path d="M8 17h8M9 14h6" stroke={color} strokeWidth="1.5" strokeLinecap="round"/></svg>),
+    more: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><circle cx="5" cy="12" r="1.8" fill={color}/><circle cx="12" cy="12" r="1.8" fill={color}/><circle cx="19" cy="12" r="1.8" fill={color}/></svg>),
+  };
+  return icons[id] || null;
+}
+
+function BottomNav({ active, onNav }) {
+  const tabs = [{ id:"flights", label:"Flights" },{ id:"wallet", label:"Wallet" },{ id:"lounges", label:"Lounges" },{ id:"passport", label:"Passport" }];
+  return (
+    <div data-testid="bottom-nav" style={{ position:"fixed", bottom:0, left:0, right:0, background:C===DARK?"rgba(4,7,14,0.98)":"rgba(255,255,248,0.98)", borderTop:`1px solid ${C.border}`, zIndex:20 }}>
+      <div style={{ display:"flex", padding:"8px 8px 22px", maxWidth:480, margin:"0 auto" }}>
+        {tabs.map(t=>(<div key={t.id} data-testid={`tab-${t.id}`} onClick={()=>onNav(t.id)} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:4, cursor:"pointer", padding:"6px 0" }}><VintageIcon id={t.id} size={24} color={active===t.id?C.accent:C.muted}/><span style={{ fontSize:9, fontWeight:700, fontFamily:C.mono, letterSpacing:1, color:active===t.id?C.accent:C.muted }}>{t.label.toUpperCase()}</span>{active===t.id&&<div style={{ width:20, height:2, borderRadius:1, background:C.accent }}/>}</div>))}
+      </div>
+    </div>
+  );
+}
+
+function Onboarding({ onDone }) {
+  const [step, setStep] = useState(0);
+  const [navPick, setNavPick] = useState(null);
+  const slides = [
+    { title:"Never Miss a Change", body:"We check your flights every 15 minutes across 3 data sources and alert you the instant anything changes — often before the airline does." },
+    { title:"Know Before You Go", body:"We track the incoming aircraft that becomes your flight, so you get the earliest possible warning if a delay is coming your way." },
+    { title:"Leave at the Right Time", body:"My Runway calculates exactly when to leave home based on live traffic, your airport, and your flight." },
+    { title:"Share with Anyone", body:"Send a live tracking link to whoever's picking you up. They see your flight in real time — no app needed." },
+  ];
+  const setupStep = slides.length;        // the nav-app picker comes after the slides
+  const onSlides = step < slides.length;
+  const s = onSlides ? slides[step] : null;
+
+  // ── Navigation-app setup screen ──
+  if (step === setupStep) {
+    return (
+      <div style={{ position:"fixed", inset:0, background:C.bg, zIndex:90, display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto" }}>
+        <div style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"32px", textAlign:"center" }}>
+          <div style={{ marginBottom:36 }}><MyRunwayBadge variant="full" size={120}/></div>
+          <div style={{ animation:"fadeUp 0.4s ease", width:"100%" }}>
+            <div style={{ fontFamily:C.display, fontSize:26, fontWeight:400, fontStyle:"italic", color:C.text, marginBottom:12 }}>One quick thing</div>
+            <div style={{ fontSize:15, color:C.soft, lineHeight:1.6, maxWidth:320, margin:"0 auto 24px" }}>How do you usually get to the airport? We'll open the right app when it's time to leave.</div>
+            <div style={{ display:"flex", flexDirection:"column", gap:8, maxWidth:340, margin:"0 auto" }}>
+              <div style={{ fontSize:10, color:C.muted, fontWeight:700, letterSpacing:1, textAlign:"left", marginBottom:1 }}>DRIVING</div>
+              {NAV_APPS.map((a,i)=>a.mode==="drive"&&(
+                <div key={a.id} onClick={()=>setNavPick(i)} style={{ display:"flex", alignItems:"center", gap:12, background:navPick===i?`${a.color}18`:C.card, border:`2px solid ${navPick===i?a.color:C.border}`, borderRadius:12, padding:"11px 16px", cursor:"pointer", transition:"all 0.15s" }}>
+                  <NavLogo app={a} size={26}/>
+                  <span style={{ flex:1, textAlign:"left", fontSize:15, fontWeight:700, color:navPick===i?a.color:C.text }}>{a.label}</span>
+                  <div style={{ width:20, height:20, borderRadius:10, border:`2px solid ${navPick===i?a.color:C.border}`, background:navPick===i?a.color:"transparent", display:"flex", alignItems:"center", justifyContent:"center" }}>{navPick===i&&<span style={{ fontSize:12, color:"#000", fontWeight:900 }}>✓</span>}</div>
+                </div>
+              ))}
+              <div style={{ fontSize:10, color:C.muted, fontWeight:700, letterSpacing:1, textAlign:"left", margin:"6px 0 1px" }}>PUBLIC TRANSIT</div>
+              {NAV_APPS.map((a,i)=>a.mode==="transit"&&(
+                <div key={a.id} onClick={()=>setNavPick(i)} style={{ display:"flex", alignItems:"center", gap:12, background:navPick===i?`${a.color}18`:C.card, border:`2px solid ${navPick===i?a.color:C.border}`, borderRadius:12, padding:"11px 16px", cursor:"pointer", transition:"all 0.15s" }}>
+                  <NavLogo app={a} size={26}/>
+                  <span style={{ flex:1, textAlign:"left", fontSize:15, fontWeight:700, color:navPick===i?a.color:C.text }}>{a.label}</span>
+                  <div style={{ width:20, height:20, borderRadius:10, border:`2px solid ${navPick===i?a.color:C.border}`, background:navPick===i?a.color:"transparent", display:"flex", alignItems:"center", justifyContent:"center" }}>{navPick===i&&<span style={{ fontSize:12, color:"#000", fontWeight:900 }}>✓</span>}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div style={{ padding:"0 32px 40px" }}>
+          <div onClick={()=>navPick!==null&&onDone(navPick)} style={{ background:navPick!==null?`linear-gradient(135deg,${C.accent},#007aaa)`:C.surface, border:navPick!==null?"none":`1px solid ${C.border}`, borderRadius:14, padding:"16px 0", textAlign:"center", fontWeight:800, fontSize:16, color:navPick!==null?"#000":C.muted, cursor:navPick!==null?"pointer":"default", transition:"all 0.2s" }}>Get Started →</div>
+          <div style={{ textAlign:"center", marginTop:12, fontSize:12, color:C.muted }}>You can change this anytime in Settings</div>
+        </div>
+        <style>{`@keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}`}</style>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:C.bg, zIndex:90, display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto" }}>
+      <div style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"32px", textAlign:"center" }}>
+        <div style={{ marginBottom:44 }}><MyRunwayBadge variant="full" size={180}/></div>
+        <div key={step} style={{ animation:"fadeUp 0.4s ease" }}>
+          <div style={{ fontFamily:C.display, fontSize:26, fontWeight:400, fontStyle:"italic", color:C.text, marginBottom:14 }}>{s.title}</div>
+          <div style={{ fontSize:15, color:C.soft, lineHeight:1.6, maxWidth:320, margin:"0 auto" }}>{s.body}</div>
+        </div>
+      </div>
+      <div style={{ padding:"0 32px 40px" }}>
+        <div style={{ display:"flex", gap:6, justifyContent:"center", marginBottom:28 }}>{slides.map((_,i)=>(<div key={i} style={{ width:i===step?24:8, height:8, borderRadius:4, background:i===step?C.accent:C.border, transition:"all 0.3s" }}/>))}</div>
+        <div onClick={()=>setStep(step+1)} style={{ background:`linear-gradient(135deg,${C.accent},#007aaa)`, borderRadius:14, padding:"16px 0", textAlign:"center", fontWeight:800, fontSize:16, color:"#000", cursor:"pointer" }}>Next</div>
+        <div onClick={()=>setStep(setupStep)} style={{ textAlign:"center", marginTop:16, fontSize:14, color:C.muted, cursor:"pointer" }}>Skip</div>
+      </div>
+      <style>{`@keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}`}</style>
     </div>
   );
 }
@@ -1390,7 +1550,7 @@ function CorporatePricingPage({ onBack }) {
           </div>
         </div>
 
-        <div onClick={()=>alert("Our sales team will contact you within 24 hours to get your team set up!")} style={{ background:`linear-gradient(135deg,${C.purple},#7c3aed)`, borderRadius:14, padding:"16px 0", textAlign:"center", fontWeight:800, fontSize:16, color:"#fff", cursor:"pointer", marginBottom:12 }}>
+        <div onClick={()=>notify("Our sales team will contact you within 24 hours to get your team set up!")} style={{ background:`linear-gradient(135deg,${C.purple},#7c3aed)`, borderRadius:14, padding:"16px 0", textAlign:"center", fontWeight:800, fontSize:16, color:"#fff", cursor:"pointer", marginBottom:12 }}>
           Start Free Trial →
         </div>
         <div style={{ textAlign:"center", fontSize:12, color:C.muted }}>14-day free trial · no credit card required · cancel anytime</div>
@@ -1427,7 +1587,7 @@ function PlansScreen() {
           </div>
           {t.features.map(f=><div key={f} style={{ display:"flex", alignItems:"center", gap:10, marginBottom:9 }}><span style={{ fontSize:15, color:t.color }}>✓</span><span style={{ fontSize:14, color:C.text }}>{f}</span></div>)}
           {t.missing.map(f=><div key={f} style={{ display:"flex", alignItems:"center", gap:10, marginBottom:9 }}><span style={{ fontSize:15, color:C.muted }}>✕</span><span style={{ fontSize:14, color:C.muted }}>{f}</span></div>)}
-          <div onClick={()=>alert(t.id==="free"?"You're on the free plan!":"Opening checkout for Pro ($19.99/yr)...")}
+          <div onClick={()=>notify(t.id==="free"?"You're on the free plan!":"Opening checkout for Pro ($19.99/yr)...")}
             style={{ ...t.ctaStyle, borderRadius:13, padding:"15px 0", textAlign:"center", fontWeight:800, fontSize:15, cursor:"pointer", marginTop:18 }}>
             {t.cta}
           </div>
@@ -1463,7 +1623,7 @@ function PlansScreen() {
   );
 }
 
-function CorporateSettings({ onBack, isAdmin=true, teamVisible, setTeamVisible }) {
+function CorporateSettings({ onBack }) {
   const [companyName, setCompanyName] = useState("Acme Corp");
   const [managerEmail, setManagerEmail] = useState("manager@acme.com");
   const [alertDelays, setAlertDelays] = useState(true);
@@ -1516,9 +1676,9 @@ function CorporateSettings({ onBack, isAdmin=true, teamVisible, setTeamVisible }
         </div>
         <div style={{ marginBottom:20 }}>
           <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:12 }}>TEAM MANAGEMENT</div>
-          {[["📧","Invite Team Members","Send invites via email"],["📤","Import from CSV","Bulk add employees with flight data"],["🔐","SSO Configuration","Set up Google/Microsoft single sign-on"]].map(([icon,title,desc])=>(
-            <div key={title} onClick={()=>alert(`${title}: Coming soon! This will be available in the Pro launch.`)} style={{ display:"flex", alignItems:"center", gap:12, padding:"13px 14px", background:C.card, borderRadius:12, border:`1px solid ${C.border}`, marginBottom:8, cursor:"pointer" }}>
-              <span style={{ fontSize:20 }}>{icon}</span>
+          {[["email","Invite Team Members","Send invites via email"],["upload","Import from CSV","Bulk add employees with flight data"],["lock","SSO Configuration","Set up Google/Microsoft single sign-on"]].map(([icon,title,desc])=>(
+            <div key={title} onClick={()=>notify(`${title}: Coming soon! This will be available in the Pro launch.`)} style={{ display:"flex", alignItems:"center", gap:12, padding:"13px 14px", background:C.card, borderRadius:12, border:`1px solid ${C.border}`, marginBottom:8, cursor:"pointer" }}>
+              <span style={{ display:"flex", justifyContent:"center" }}><StatIcon id={icon} color={C.soft} size={20}/></span>
               <div style={{ flex:1 }}>
                 <div style={{ fontSize:14, fontWeight:600, color:C.text }}>{title}</div>
                 <div style={{ fontSize:12, color:C.muted }}>{desc}</div>
@@ -1528,7 +1688,7 @@ function CorporateSettings({ onBack, isAdmin=true, teamVisible, setTeamVisible }
           ))}
         </div>
         <div onClick={save} style={{ background:saved?C.green:`linear-gradient(135deg,${C.purple},#7c3aed)`, borderRadius:14, padding:"15px 0", textAlign:"center", fontWeight:800, fontSize:15, color:"#fff", cursor:"pointer" }}>
-          {saved?"✅ Saved!":"Save Settings"}
+          {saved?"Saved":"Save Settings"}
         </div>
       </div>
     </div>
@@ -1584,7 +1744,7 @@ function CorporateDashboard({ onClose, corpRole="admin" }) {
   function rejectExpense(id) { setExpenses(ex=>ex.map(e=>e.id===id?{...e,status:"rejected"}:e)); }
 
   const statusColor = { draft:C.muted, submitted:C.yellow, approved:C.green, rejected:C.red };
-  const statusIcon = { draft:"✏️", submitted:"⏳", approved:"✅", rejected:"❌" };
+  const statusIcon = { draft:"edit", submitted:"hourglass", approved:"check", rejected:"cross" };
 
   const filtered = filter==="all"?EMPLOYEES:filter==="issue"?EMPLOYEES.filter(e=>e.delay>0||e.cancelled):EMPLOYEES.filter(e=>e.dept===filter);
   const delayed=EMPLOYEES.filter(e=>e.delay>0).length;
@@ -1608,14 +1768,14 @@ function CorporateDashboard({ onClose, corpRole="admin" }) {
             <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10 }}>CAPTURE RECEIPT</div>
             <div style={{ display:"flex", gap:8 }}>
               <label style={{ flex:1, background:"rgba(0,200,240,0.07)", border:"1px solid rgba(0,200,240,0.25)", borderRadius:14, padding:"16px", textAlign:"center", cursor:"pointer", display:"block" }}>
-                <input type="file" accept="image/*" capture="environment" style={{ display:"none" }} onChange={e=>{ if(e.target.files[0]) alert("📸 Photo captured!\n\nIn the live app, AI reads:\n• Merchant name\n• Amount\n• Date\n• Category\n\nAnd pre-fills the form below. Review and edit if needed."); }}/>
-                <div style={{ fontSize:28, marginBottom:6 }}>📸</div>
+                <input type="file" accept="image/*" capture="environment" style={{ display:"none" }} onChange={e=>{ if(e.target.files[0]) notify("Photo captured!\n\nIn the live app, AI reads:\n• Merchant name\n• Amount\n• Date\n• Category\n\nAnd pre-fills the form below. Review and edit if needed."); }}/>
+                <div style={{ display:"flex", justifyContent:"center", marginBottom:6 }}><StatIcon id="camera" color={C.soft} size={28}/></div>
                 <div style={{ fontSize:13, fontWeight:700, color:C.accent }}>Take Photo</div>
                 <div style={{ fontSize:11, color:C.soft }}>AI reads your receipt</div>
               </label>
               <label style={{ flex:1, background:C.surface, border:`1px solid ${C.border}`, borderRadius:14, padding:"16px", textAlign:"center", cursor:"pointer", display:"block" }}>
-                <input type="file" accept="image/*" style={{ display:"none" }} onChange={e=>{ if(e.target.files[0]) alert("🖼️ Image uploaded!\n\nAI is reading your receipt..."); }}/>
-                <div style={{ fontSize:28, marginBottom:6 }}>🖼️</div>
+                <input type="file" accept="image/*" style={{ display:"none" }} onChange={e=>{ if(e.target.files[0]) notify("Image uploaded!\n\nAI is reading your receipt..."); }}/>
+                <div style={{ display:"flex", justifyContent:"center", marginBottom:6 }}><StatIcon id="image" color={C.soft} size={28}/></div>
                 <div style={{ fontSize:13, fontWeight:700, color:C.soft }}>Upload Photo</div>
                 <div style={{ fontSize:11, color:C.muted }}>From camera roll</div>
               </label>
@@ -1661,7 +1821,6 @@ function CorporateDashboard({ onClose, corpRole="admin" }) {
 
   // ── Employee detail view ───────────────────────────────────────
   if (selEmp) {
-    const s=sc(selEmp.status);
     return (
       <div style={{ position:"fixed", inset:0, background:C.bg, zIndex:50, overflowY:"auto" }}>
         <div style={{ background:"rgba(4,7,14,0.98)", borderBottom:`1px solid ${C.border}`, padding:"14px 16px", display:"flex", alignItems:"center", gap:10, position:"sticky", top:0 }}>
@@ -1686,7 +1845,7 @@ function CorporateDashboard({ onClose, corpRole="admin" }) {
               <div style={{ fontSize:24, fontWeight:800, color:C.text, fontFamily:C.mono }}>{selEmp.dep}</div>
               <div style={{ flex:1, height:2, background:C.border, borderRadius:1, position:"relative" }}>
                 {selEmp.progress>0&&<div style={{ height:2, width:`${selEmp.progress}%`, background:`linear-gradient(90deg,${C.accent},${C.orange})`, borderRadius:1 }}/>}
-                <span style={{ position:"absolute", top:"50%", left:`${Math.max(5,Math.min(90,selEmp.progress))}%`, transform:"translate(-50%,-50%)", fontSize:16 }}>✈</span>
+                <span style={{ position:"absolute", top:"50%", left:`${Math.max(5,Math.min(90,selEmp.progress))}%`, transform:"translate(-50%,-50%)", display:"flex" }}><StatIcon id="plane" color={C.accent} size={16}/></span>
               </div>
               <div style={{ fontSize:24, fontWeight:800, color:C.text, fontFamily:C.mono }}>{selEmp.arr}</div>
             </div>
@@ -1697,11 +1856,11 @@ function CorporateDashboard({ onClose, corpRole="admin" }) {
               </div>
             ))}
           </div>
-          {selEmp.saved&&<div style={{ background:"rgba(0,232,122,0.07)", border:"1px solid rgba(0,232,122,0.2)", borderRadius:12, padding:"10px 14px", marginBottom:12, display:"flex", alignItems:"center", gap:8 }}><span style={{ fontSize:16 }}>💰</span><span style={{ fontSize:13, color:C.green }}>Saved ${selEmp.saved} vs company average</span></div>}
+          {selEmp.saved&&<div style={{ background:"rgba(0,232,122,0.07)", border:"1px solid rgba(0,232,122,0.2)", borderRadius:12, padding:"10px 14px", marginBottom:12, display:"flex", alignItems:"center", gap:8 }}><span style={{ display:"flex", justifyContent:"center" }}><StatIcon id="money" color={C.soft} size={16}/></span><span style={{ fontSize:13, color:C.green }}>Saved ${selEmp.saved} vs company average</span></div>}
           <div style={{ display:"flex", gap:10, marginBottom:12 }}>
-            {[["📞","Call",()=>alert(`Calling ${selEmp.name}...`)],["💬","Message",()=>alert(`Messaging ${selEmp.name}...`)],["🔗","Track",()=>alert(`Live link: myrunwayapp.co/t/${selEmp.id}`)]].map(([icon,label,fn])=>(
+            {[["phone","Call",()=>notify(`Calling ${selEmp.name}...`)],["chat","Message",()=>notify(`Messaging ${selEmp.name}...`)],["link","Track",()=>notify(`Live link: myrunwayapp.co/t/${selEmp.id}`)]].map(([icon,label,fn])=>(
               <div key={label} onClick={fn} style={{ flex:1, background:C.card, border:`1px solid ${C.border}`, borderRadius:12, padding:"12px 0", textAlign:"center", cursor:"pointer" }}>
-                <div style={{ fontSize:20, marginBottom:3 }}>{icon}</div>
+                <div style={{ display:"flex", justifyContent:"center", marginBottom:3 }}><StatIcon id={icon} color={C.soft} size={20}/></div>
                 <div style={{ fontSize:12, fontWeight:700, color:C.soft }}>{label}</div>
               </div>
             ))}
@@ -1712,7 +1871,7 @@ function CorporateDashboard({ onClose, corpRole="admin" }) {
               <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10 }}>EXPENSES</div>
               {expenses.filter(e=>e.emp===selEmp.name).map(exp=>(
                 <div key={exp.id} style={{ background:C.card, borderRadius:12, border:`1px solid ${C.border}`, padding:"12px 14px", marginBottom:8, display:"flex", alignItems:"center", gap:10 }}>
-                  <span style={{ fontSize:18 }}>{statusIcon[exp.status]}</span>
+                  <span style={{ display:"flex" }}><StatIcon id={statusIcon[exp.status]} color={exp.status==="approved"?C.green:exp.status==="rejected"?C.red:C.soft} size={18}/></span>
                   <div style={{ flex:1 }}>
                     <div style={{ fontSize:13, fontWeight:700, color:C.text }}>{exp.merchant}</div>
                     <div style={{ fontSize:11, color:C.muted }}>{exp.category} · {exp.date}</div>
@@ -1757,7 +1916,7 @@ function CorporateDashboard({ onClose, corpRole="admin" }) {
             </div>
           ))}
         </div>
-        <div onClick={()=>alert("Downloading CSV...")} style={{ background:`linear-gradient(135deg,${C.accent},#007aaa)`, borderRadius:14, padding:"15px 0", textAlign:"center", fontWeight:800, fontSize:15, color:"#000", cursor:"pointer" }}>
+        <div onClick={()=>notify("Downloading CSV...")} style={{ background:`linear-gradient(135deg,${C.accent},#007aaa)`, borderRadius:14, padding:"15px 0", textAlign:"center", fontWeight:800, fontSize:15, color:"#000", cursor:"pointer" }}>
           Download CSV ↓
         </div>
       </div>
@@ -1779,7 +1938,7 @@ function CorporateDashboard({ onClose, corpRole="admin" }) {
 
       {/* Tabs */}
       <div style={{ display:"flex", borderBottom:`1px solid ${C.border}`, background:C.bg, position:"sticky", top:62, zIndex:9 }}>
-        {(isAdmin||teamVisible?[["flights","✈️ Flights"],["expenses","🧾 Expenses"]]:[ ["flights","✈️ My Flights"],["expenses","🧾 My Expenses"] ]).map(([id,label])=>(
+        {(isAdmin||teamVisible?[["flights","Flights"],["expenses","Expenses"]]:[ ["flights","My Flights"],["expenses","My Expenses"] ]).map(([id,label])=>(
           <div key={id} onClick={()=>setTab(id)} style={{ flex:1, padding:"13px 0", textAlign:"center", fontWeight:700, fontSize:13, color:tab===id?C.accent:C.muted, borderBottom:`2px solid ${tab===id?C.accent:"transparent"}`, cursor:"pointer" }}>{label}</div>
         ))}
       </div>
@@ -1792,21 +1951,21 @@ function CorporateDashboard({ onClose, corpRole="admin" }) {
             <>
               {/* Admin: savings + alerts + stats */}
               <div style={{ background:"rgba(0,232,122,0.07)", border:"1px solid rgba(0,232,122,0.2)", borderRadius:14, padding:"12px 16px", marginBottom:12, display:"flex", alignItems:"center", gap:12 }}>
-                <span style={{ fontSize:22 }}>💰</span>
+                <span style={{ display:"flex", justifyContent:"center" }}><StatIcon id="money" color={C.soft} size={22}/></span>
                 <div style={{ flex:1 }}><div style={{ fontSize:13, fontWeight:800, color:C.green }}>$220 saved this month</div><div style={{ fontSize:11, color:C.soft }}>2 employees booked below budget</div></div>
                 <span style={{ fontSize:10, color:C.green, fontFamily:C.mono, fontWeight:700, border:"1px solid rgba(0,232,122,0.3)", borderRadius:6, padding:"3px 8px" }}>VIEW →</span>
               </div>
               {(delayed>0||cancelled>0)&&(
                 <div style={{ background:"rgba(255,58,84,0.08)", border:"1px solid rgba(255,58,84,0.25)", borderRadius:14, padding:"12px 14px", marginBottom:12, display:"flex", gap:10, alignItems:"center" }}>
-                  <span style={{ fontSize:20 }}>🚨</span>
+                  <span style={{ display:"flex", justifyContent:"center" }}><StatIcon id="alert" color={C.soft} size={20}/></span>
                   <div style={{ flex:1 }}><div style={{ fontSize:13, fontWeight:700, color:C.red }}>Action needed</div><div style={{ fontSize:12, color:C.soft }}>{cancelled>0?`${cancelled} cancellation · `:""}{delayed>0?`${delayed} delayed`:""}</div></div>
                   <div onClick={()=>setFilter("issue")} style={{ background:C.red, borderRadius:8, padding:"6px 10px", cursor:"pointer" }}><span style={{ fontSize:11, fontWeight:800, color:"#fff" }}>Review</span></div>
                 </div>
               )}
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:8, marginBottom:14 }}>
-                {[["✈️","In Air",inAir,C.accent],["✅","On Time",onTime,C.green],["⏰","Delayed",delayed,C.yellow],["❌","Cancel",cancelled,C.red]].map(([icon,label,val,color])=>(
+                {[["plane","In Air",inAir,C.accent],["check","On Time",onTime,C.green],["clock","Delayed",delayed,C.yellow],["cross","Cancel",cancelled,C.red]].map(([icon,label,val,color])=>(
                   <div key={label} style={{ background:`${color}12`, borderRadius:12, border:`1px solid ${color}30`, padding:"12px 4px", textAlign:"center" }}>
-                    <div style={{ fontSize:18, marginBottom:4 }}>{icon}</div>
+                    <div style={{ display:"flex", justifyContent:"center", marginBottom:4 }}><StatIcon id={icon} color={C.soft} size={18}/></div>
                     <div style={{ fontSize:22, fontWeight:800, color, fontFamily:C.mono, lineHeight:1, marginBottom:3 }}>{val}</div>
                     <div style={{ fontSize:9, color:C.soft, fontFamily:C.mono }}>{label}</div>
                   </div>
@@ -1824,12 +1983,12 @@ function CorporateDashboard({ onClose, corpRole="admin" }) {
               </div>
               {/* Dept filters */}
               <div style={{ display:"flex", gap:6, marginBottom:12, flexWrap:"wrap" }}>
-                {[["all","All"],["issue","🚨 Issues"],["Sales","Sales"],["Eng","Eng"],["Exec","Exec"],["HR","HR"]].map(([id,label])=>(
+                {[["all","All"],["issue","Issues"],["Sales","Sales"],["Eng","Eng"],["Exec","Exec"],["HR","HR"]].map(([id,label])=>(
                   <div key={id} onClick={()=>setFilter(id)} style={{ padding:"5px 12px", borderRadius:20, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:C.mono, background:filter===id?"rgba(0,200,240,0.12)":"transparent", color:filter===id?C.accent:C.soft, border:`1px solid ${filter===id?"rgba(0,200,240,0.3)":C.border}` }}>{label}</div>
                 ))}
               </div>
               {/* Employee list */}
-              {filtered.map(emp=>{ const s=sc(emp.status); const hasIssue=emp.delay>0||emp.cancelled; return (
+              {filtered.map(emp=>{ const hasIssue=emp.delay>0||emp.cancelled; return (
                 <div key={emp.id} onClick={()=>setSelEmp(emp)} style={{ background:C.card, borderRadius:16, border:`1px solid ${hasIssue?(emp.cancelled?"rgba(255,58,84,0.25)":"rgba(255,200,0,0.2)"):C.border}`, padding:"14px 16px", marginBottom:10, cursor:"pointer" }}>
                   <div style={{ display:"flex", alignItems:"center", gap:12 }}>
                     <div style={{ width:44, height:44, borderRadius:22, background:`${emp.color}18`, border:`2px solid ${emp.color}60`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:800, color:emp.color, fontFamily:C.mono, flexShrink:0 }}>{emp.avatar}</div>
@@ -1837,12 +1996,12 @@ function CorporateDashboard({ onClose, corpRole="admin" }) {
                       <div style={{ display:"flex", alignItems:"center", gap:7, marginBottom:4 }}>
                         <span style={{ fontSize:15, fontWeight:800, color:C.text }}>{emp.name}</span>
                         <span style={{ fontSize:10, color:C.muted, background:C.surface, borderRadius:5, padding:"2px 7px", fontFamily:C.mono, border:`1px solid ${C.border}` }}>{emp.dept}</span>
-                        {emp.saved&&<span style={{ fontSize:9, color:C.green, fontFamily:C.mono }}>💰 Saved ${emp.saved}</span>}
+                        {emp.saved&&<span style={{ fontSize:9, color:C.green, fontFamily:C.mono }}>Saved ${emp.saved}</span>}
                       </div>
                       <div style={{ fontSize:12, color:C.soft, fontFamily:C.mono }}>{emp.flight} · {emp.dep} → {emp.arr}</div>
                       {emp.progress>0&&emp.progress<100&&<div style={{ height:3, background:C.surface, borderRadius:2, overflow:"hidden", marginTop:8, maxWidth:180 }}><div style={{ height:3, width:`${emp.progress}%`, background:`linear-gradient(90deg,${emp.color},${C.accent})`, borderRadius:2 }}/></div>}
-                      {emp.delay>0&&<div style={{ fontSize:11, color:C.yellow, marginTop:4, fontFamily:C.mono }}>⏰ +{emp.delay} min delay</div>}
-                      {emp.cancelled&&<div style={{ fontSize:11, color:C.red, marginTop:4, fontWeight:700 }}>🚨 Cancelled — needs rebooking</div>}
+                      {emp.delay>0&&<div style={{ fontSize:11, color:C.yellow, marginTop:4, fontFamily:C.mono, display:"flex", alignItems:"center", gap:4 }}><StatIcon id="clock" color={C.yellow} size={12}/>+{emp.delay} min delay</div>}
+                      {emp.cancelled&&<div style={{ fontSize:11, color:C.red, marginTop:4, fontWeight:700 }}>Cancelled — needs rebooking</div>}
                     </div>
                     <StatusPill status={emp.status}/>
                   </div>
@@ -1850,12 +2009,12 @@ function CorporateDashboard({ onClose, corpRole="admin" }) {
               );})}
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginTop:8 }}>
                 <div onClick={()=>setShowExport(true)} style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:"16px", textAlign:"center", cursor:"pointer" }}>
-                  <div style={{ fontSize:24, marginBottom:6 }}>📊</div>
+                  <div style={{ display:"flex", justifyContent:"center", marginBottom:6 }}><StatIcon id="chart" color={C.soft} size={24}/></div>
                   <div style={{ fontSize:13, fontWeight:700, color:C.text, marginBottom:2 }}>Export Report</div>
                   <div style={{ fontSize:11, color:C.muted }}>Download CSV</div>
                 </div>
                 <div onClick={()=>setShowSettings(true)} style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:"16px", textAlign:"center", cursor:"pointer" }}>
-                  <div style={{ fontSize:24, marginBottom:6 }}>⚙️</div>
+                  <div style={{ display:"flex", justifyContent:"center", marginBottom:6 }}><StatIcon id="gear" color={C.soft} size={24}/></div>
                   <div style={{ fontSize:13, fontWeight:700, color:C.text, marginBottom:2 }}>Settings</div>
                   <div style={{ fontSize:11, color:C.muted }}>Policies · Team · SSO</div>
                 </div>
@@ -1874,7 +2033,7 @@ function CorporateDashboard({ onClose, corpRole="admin" }) {
               {teamVisible ? (
                 <div>
                   <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10 }}>YOUR TEAM</div>
-                  {EMPLOYEES.slice(0,3).map(emp=>{ const s=sc(emp.status); return (
+                  {EMPLOYEES.slice(0,3).map(emp=>{ return (
                     <div key={emp.id} style={{ background:C.card, borderRadius:14, border:`1px solid ${C.border}`, padding:"12px 14px", marginBottom:8, display:"flex", alignItems:"center", gap:10 }}>
                       <div style={{ width:36, height:36, borderRadius:18, background:`${emp.color}18`, border:`2px solid ${emp.color}60`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:800, color:emp.color, fontFamily:C.mono }}>{emp.avatar}</div>
                       <div style={{ flex:1 }}><div style={{ fontSize:13, fontWeight:700, color:C.text }}>{emp.name}</div><div style={{ fontSize:11, color:C.soft, fontFamily:C.mono }}>{emp.flight} · {emp.dep}→{emp.arr}</div></div>
@@ -1884,7 +2043,7 @@ function CorporateDashboard({ onClose, corpRole="admin" }) {
                 </div>
               ) : (
                 <div style={{ background:C.surface, borderRadius:14, border:`1px solid ${C.border}`, padding:"20px", textAlign:"center" }}>
-                  <div style={{ fontSize:24, marginBottom:8 }}>👥</div>
+                  <div style={{ display:"flex", justifyContent:"center", marginBottom:8 }}><StatIcon id="users" color={C.soft} size={24}/></div>
                   <div style={{ fontSize:14, fontWeight:700, color:C.text, marginBottom:6 }}>Team visibility is off</div>
                   <div style={{ fontSize:12, color:C.soft }}>Your admin hasn't enabled team flight sharing yet.</div>
                 </div>
@@ -1907,11 +2066,11 @@ function CorporateDashboard({ onClose, corpRole="admin" }) {
 
           {/* Summary bar */}
           <div style={{ display:"flex", gap:8, marginBottom:14 }}>
-            {[["🍽️","Meals"],["🚕","Transport"],["🏨","Lodging"],["✈️","Travel"]].map(([icon,cat])=>{
+            {[["food","Meals"],["drive","Transport"],["building","Lodging"],["plane","Travel"]].map(([icon,cat])=>{
               const total = myExpenses.filter(e=>e.category===cat).reduce((s,e)=>s+parseFloat(e.amount||0),0).toFixed(2);
               return (
                 <div key={cat} style={{ flex:1, background:C.card, borderRadius:10, border:`1px solid ${C.border}`, padding:"8px 4px", textAlign:"center" }}>
-                  <div style={{ fontSize:14, marginBottom:2 }}>{icon}</div>
+                  <div style={{ display:"flex", justifyContent:"center", marginBottom:2 }}><StatIcon id={icon} color={C.soft} size={14}/></div>
                   <div style={{ fontSize:10, color:C.muted, marginBottom:2 }}>{cat}</div>
                   <div style={{ fontSize:11, fontWeight:800, color:C.text, fontFamily:C.mono }}>${total}</div>
                 </div>
@@ -1922,7 +2081,7 @@ function CorporateDashboard({ onClose, corpRole="admin" }) {
           {/* Expense line items */}
           {myExpenses.length===0&&(
             <div style={{ background:C.card, borderRadius:14, border:`1px solid ${C.border}`, padding:"32px", textAlign:"center" }}>
-              <div style={{ fontSize:32, marginBottom:10 }}>🧾</div>
+              <div style={{ display:"flex", justifyContent:"center", marginBottom:10 }}><StatIcon id="receipt" color={C.soft} size={32}/></div>
               <div style={{ fontSize:15, fontWeight:700, color:C.text, marginBottom:6 }}>No expenses yet</div>
               <div style={{ fontSize:12, color:C.soft }}>Tap + Add to snap a receipt or enter manually</div>
             </div>
@@ -1930,7 +2089,7 @@ function CorporateDashboard({ onClose, corpRole="admin" }) {
           {myExpenses.map(exp=>(
             <div key={exp.id} style={{ background:C.card, borderRadius:14, border:`1px solid ${exp.status==="rejected"?"rgba(255,58,84,0.25)":exp.status==="approved"?"rgba(0,232,122,0.18)":C.border}`, padding:"14px 16px", marginBottom:10 }}>
               <div style={{ display:"flex", alignItems:"flex-start", gap:10 }}>
-                <span style={{ fontSize:22, flexShrink:0 }}>{statusIcon[exp.status]}</span>
+                <span style={{ display:"flex", flexShrink:0 }}><StatIcon id={statusIcon[exp.status]} color={exp.status==="approved"?C.green:exp.status==="rejected"?C.red:C.soft} size={22}/></span>
                 <div style={{ flex:1, minWidth:0 }}>
                   <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:4 }}>
                     <div style={{ fontSize:15, fontWeight:800, color:C.text }}>{exp.merchant}</div>
@@ -1957,7 +2116,7 @@ function CorporateDashboard({ onClose, corpRole="admin" }) {
             </div>
           ))}
           {isAdmin&&myExpenses.some(e=>e.status==="submitted")&&(
-            <div onClick={()=>alert("Exporting expense report to finance...")} style={{ background:`linear-gradient(135deg,${C.purple},#7c3aed)`, borderRadius:14, padding:"14px 0", textAlign:"center", fontWeight:800, fontSize:14, color:"#fff", cursor:"pointer", marginTop:8 }}>
+            <div onClick={()=>notify("Exporting expense report to finance...")} style={{ background:`linear-gradient(135deg,${C.purple},#7c3aed)`, borderRadius:14, padding:"14px 0", textAlign:"center", fontWeight:800, fontSize:14, color:"#fff", cursor:"pointer", marginTop:8 }}>
               Export to Finance →
             </div>
           )}
@@ -1969,710 +2128,165 @@ function CorporateDashboard({ onClose, corpRole="admin" }) {
 
 
 // ── Boarding Pass / Mobile Wallet ──────────────────────────────
-function WalletScreen() {
-  const [active, setActive] = useState(0);
-  const passes = [
-    { id:"p1", airline:"El Al", code:"LY", flight:"LY 018", dep:"MIA", arr:"TLV", date:"Sun Jun 14", time:"2:30 PM", gate:"TBD", seat:"32A", boarding:"1:45 PM", group:"4", name:"SADOK/ASAF", conf:"8ZEH6P", color:"#003399" },
-    { id:"p2", airline:"El Al", code:"LY", flight:"LY 347", dep:"TLV", arr:"ZRH", date:"Thu Jul 2", time:"8:00 AM", gate:"TBD", seat:"18C", boarding:"7:15 AM", group:"3", name:"SADOK/ASAF", conf:"8ZEH6P", color:"#003399" },
-    { id:"p3", airline:"Swiss", code:"LX", flight:"LX 064", dep:"ZRH", arr:"MIA", date:"Thu Jul 2", time:"1:00 PM", gate:"TBD", seat:"24F", boarding:"12:15 PM", group:"2", name:"SADOK/ASAF", conf:"8ZEH6P", color:"#d52b1e" },
-  ];
-  const p = passes[active];
-  return (
-    <div style={{ padding:"14px 14px 100px" }}>
-      <div style={{ fontSize:13, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:12 }}>MOBILE BOARDING PASSES</div>
 
-      {/* Pass selector */}
-      <div style={{ display:"flex", gap:8, marginBottom:16, overflowX:"auto" }}>
-        {passes.map((pass,i)=>(
-          <div key={pass.id} onClick={()=>setActive(i)} style={{ flexShrink:0, background:i===active?C.card:C.surface, border:`1px solid ${i===active?C.accent:C.border}`, borderRadius:10, padding:"8px 12px", cursor:"pointer" }}>
-            <div style={{ fontSize:12, fontWeight:800, color:i===active?C.accent:C.soft, fontFamily:C.mono }}>{pass.flight}</div>
-            <div style={{ fontSize:10, color:C.muted }}>{pass.dep}→{pass.arr}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* The boarding pass */}
-      <div style={{ background:"#fff", borderRadius:20, overflow:"hidden", boxShadow:"0 8px 32px rgba(0,0,0,0.4)" }}>
-        <div style={{ background:p.color, padding:"16px 20px", display:"flex", alignItems:"center", justifyContent:"space-between", position:"relative", overflow:"hidden" }}>
-          {/* Art deco diagonal lines */}
-          <div style={{ position:"absolute", inset:0, backgroundImage:"repeating-linear-gradient(45deg,transparent,transparent 8px,rgba(255,255,255,0.04) 8px,rgba(255,255,255,0.04) 9px)", pointerEvents:"none" }}/>
-          <div style={{ color:"#fff", fontSize:18, fontWeight:700, fontFamily:"Georgia,serif", fontStyle:"italic", letterSpacing:1 }}>{p.airline}</div>
-          <div style={{ color:"rgba(255,255,255,0.9)", fontSize:12, fontFamily:"'Courier New',monospace", letterSpacing:2 }}>{p.flight}</div>
-        </div>
-        <div style={{ padding:"20px" }}>
-          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:20 }}>
-            <div style={{ textAlign:"center" }}>
-              <div style={{ fontSize:36, fontWeight:800, color:"#111", fontFamily:C.mono, lineHeight:1 }}>{p.dep}</div>
-              <div style={{ fontSize:12, color:"#888", marginTop:4 }}>{p.time}</div>
-            </div>
-            <div style={{ flex:1, padding:"0 16px", textAlign:"center" }}>
-              <div style={{ fontSize:20 }}>✈️</div>
-              <div style={{ height:2, background:"#ddd", margin:"4px 0" }}/>
-              <div style={{ fontSize:11, color:"#aaa" }}>{p.date}</div>
-            </div>
-            <div style={{ textAlign:"center" }}>
-              <div style={{ fontSize:36, fontWeight:800, color:"#111", fontFamily:C.mono, lineHeight:1 }}>{p.arr}</div>
-              <div style={{ fontSize:12, color:"#888", marginTop:4 }}>Arrival</div>
-            </div>
-          </div>
-          <div style={{ display:"flex", justifyContent:"space-between", padding:"14px 0", borderTop:"1px dashed #ddd", borderBottom:"1px dashed #ddd", marginBottom:16 }}>
-            {[["PASSENGER",p.name],["SEAT",p.seat],["GROUP",p.group]].map(([l,v])=>(
-              <div key={l}><div style={{ fontSize:9, color:"#aaa", fontFamily:C.mono, marginBottom:2 }}>{l}</div><div style={{ fontSize:13, fontWeight:700, color:"#111" }}>{v}</div></div>
-            ))}
-          </div>
-          <div style={{ display:"flex", justifyContent:"space-between", marginBottom:16 }}>
-            {[["GATE",p.gate],["BOARDS",p.boarding],["CONF",p.conf]].map(([l,v])=>(
-              <div key={l}><div style={{ fontSize:9, color:"#aaa", fontFamily:C.mono, marginBottom:2 }}>{l}</div><div style={{ fontSize:13, fontWeight:700, color:"#111", fontFamily:C.mono }}>{v}</div></div>
-            ))}
-          </div>
-          {/* QR / barcode */}
-          <div style={{ background:"#fff", borderRadius:10, padding:"12px", display:"flex", justifyContent:"center" }}>
-            <div style={{ display:"flex", gap:1.5, alignItems:"flex-end", height:60 }}>
-              {Array.from({length:48}).map((_,i)=>(
-                <div key={i} style={{ width:i%4===0?3:2, height:"100%", background:(i*7%3===0||i%5===0)?"#111":"#fff" }}/>
-              ))}
-            </div>
-          </div>
-          <div style={{ textAlign:"center", fontSize:10, color:"#aaa", fontFamily:C.mono, marginTop:8 }}>{p.conf} · {p.flight} · {p.seat}</div>
-        </div>
-      </div>
-
-      {/* Add to wallet buttons */}
-      <div style={{ display:"flex", gap:8, marginTop:16 }}>
-        <div onClick={()=>alert("Adding to Apple Wallet...\n\nIn the live app this saves the pass to your phone's wallet for offline access.")} style={{ flex:1, background:"#000", border:"1px solid #333", borderRadius:12, padding:"13px 0", textAlign:"center", cursor:"pointer" }}>
-          <span style={{ fontSize:13, fontWeight:700, color:"#fff" }}> Apple Wallet</span>
-        </div>
-        <div onClick={()=>alert("Adding to Google Wallet...")} style={{ flex:1, background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:"13px 0", textAlign:"center", cursor:"pointer" }}>
-          <span style={{ fontSize:13, fontWeight:700, color:C.text }}>Google Wallet</span>
-        </div>
-      </div>
-      <div style={{ background:"rgba(0,200,240,0.06)", border:"1px solid rgba(0,200,240,0.2)", borderRadius:12, padding:"12px 14px", marginTop:12, display:"flex", alignItems:"center", gap:10 }}>
-        <span style={{ fontSize:16 }}>🔔</span>
-        <div style={{ fontSize:12, color:C.soft }}>We'll alert you the moment your gate is posted and when boarding starts.</div>
-      </div>
-    </div>
-  );
+// ── Clock: the trip is in the past, so by default we replay the travel day on a demo clock ──
+const DEMO_ANCHOR = "2026-07-01T23:40:00Z"; // 2:40 AM in Tel Aviv on Jul 2, before LY 347
+function makeClock(demo, anchorIso) {
+  if (!demo) return { demo:false, tz:Intl.DateTimeFormat().resolvedOptions().timeZone, now:()=>new Date() };
+  const start = Date.now();
+  const anchor = Date.parse(anchorIso || DEMO_ANCHOR) || Date.parse(DEMO_ANCHOR);
+  return { demo:true, tz:"Asia/Jerusalem", airport:"TLV", now:()=>new Date(anchor + (Date.now() - start)) };
 }
 
-// ── VIP Lounge Finder ──────────────────────────────────────────
-function LoungeScreen() {
-  const [airport, setAirport] = useState("MIA");
-  const airports = ["MIA","TLV","ZRH"];
-  const data = {
-    MIA:[
-      { name:"American Airlines Admirals Club", terminal:"Concourse D, near D15", access:["Priority Pass ❌","Amex Platinum ❌","AA membership ✅","Day pass $79"], hours:"5:00 AM – 9:00 PM", amenities:["Wi-Fi","Showers","Hot food","Bar"], rating:4.2 },
-      { name:"Amex Centurion Lounge", terminal:"Concourse D, near D12", access:["Amex Platinum ✅","Priority Pass ❌","Day pass ❌"], hours:"5:00 AM – 10:00 PM", amenities:["Premium dining","Craft cocktails","Showers","Spa"], rating:4.7 },
-      { name:"Turkish Airlines Lounge", terminal:"Concourse E", access:["Star Alliance Gold ✅","Priority Pass ✅","Day pass $50"], hours:"6:00 AM – 11:00 PM", amenities:["Wi-Fi","Buffet","Quiet zone"], rating:4.4 },
-    ],
-    TLV:[
-      { name:"El Al King David Lounge", terminal:"Terminal 3, Concourse C", access:["El Al Matmid ✅","Business class ✅","Day pass ❌"], hours:"24 hours", amenities:["Kosher dining","Showers","Prayer room","Wi-Fi"], rating:4.5 },
-      { name:"Dan Lounge", terminal:"Terminal 3, Level 3", access:["Priority Pass ✅","Day pass $45"], hours:"24 hours", amenities:["Buffet","Bar","Shower","Kids area"], rating:4.1 },
-    ],
-    ZRH:[
-      { name:"Swiss Senator Lounge", terminal:"Airside E", access:["Star Alliance Gold ✅","Swiss First/Business ✅","Priority Pass ❌"], hours:"5:30 AM – 10:00 PM", amenities:["Fine dining","Whisky bar","Showers","Terrace"], rating:4.6 },
-      { name:"Aspire Lounge", terminal:"Airside E, Gate E45", access:["Priority Pass ✅","Day pass CHF 55"], hours:"6:00 AM – 9:00 PM", amenities:["Wi-Fi","Snacks","Bar","Quiet area"], rating:4.0 },
-    ],
-  };
-  const lounges = data[airport];
-  return (
-    <div style={{ padding:"14px 14px 100px" }}>
-      <div style={{ fontSize:9, color:C.muted, fontFamily:C.mono, letterSpacing:3, marginBottom:12, borderBottom:`1px solid ${C.border}`, paddingBottom:8 }}>✦ VIP LOUNGE FINDER ✦</div>
-
-      {/* Airport selector */}
-      <div style={{ display:"flex", gap:8, marginBottom:16 }}>
-        {airports.map(a=>(
-          <div key={a} onClick={()=>setAirport(a)} style={{ flex:1, background:a===airport?`linear-gradient(135deg,${C.accent},#007aaa)`:C.surface, border:`1px solid ${a===airport?C.accent:C.border}`, borderRadius:12, padding:"12px 0", textAlign:"center", cursor:"pointer" }}>
-            <div style={{ fontSize:18, fontWeight:800, color:a===airport?"#000":C.text, fontFamily:C.mono }}>{a}</div>
-            <div style={{ fontSize:9, color:a===airport?"#003355":C.muted }}>{a==="MIA"?"Miami":a==="TLV"?"Tel Aviv":"Zurich"}</div>
-          </div>
-        ))}
-      </div>
-
-      {lounges.map((l,i)=>(
-        <div key={i} style={{ background:C.card, borderRadius:18, border:`1px solid ${C.border}`, padding:16, marginBottom:12, animation:"cardIn 0.4s ease" }}>
-          <div style={{ display:"flex", alignItems:"flex-start", gap:10, marginBottom:12 }}>
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-            <path d="M6 3h12L12 11 6 3z" stroke={C.accent} strokeWidth="1.5" strokeLinejoin="round" fill="none"/>
-            <line x1="12" y1="11" x2="12" y2="19" stroke={C.accent} strokeWidth="1.5" strokeLinecap="round"/>
-            <line x1="8" y1="19" x2="16" y2="19" stroke={C.accent} strokeWidth="1.5" strokeLinecap="round"/>
-          </svg>
-            <div style={{ flex:1 }}>
-              <div style={{ fontSize:15, fontWeight:800, color:C.text, marginBottom:2 }}>{l.name}</div>
-              <div style={{ fontSize:11, color:C.soft }}>📍 {l.terminal}</div>
-            </div>
-            <div style={{ background:"rgba(0,232,122,0.1)", border:"1px solid rgba(0,232,122,0.25)", borderRadius:8, padding:"3px 8px", display:"flex", alignItems:"center", gap:3 }}>
-              <span style={{ fontSize:10 }}>⭐</span><span style={{ fontSize:11, color:C.green, fontWeight:700, fontFamily:C.mono }}>{l.rating}</span>
-            </div>
-          </div>
-          <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:1, marginBottom:6 }}>ACCESS</div>
-          <div style={{ display:"flex", flexWrap:"wrap", gap:5, marginBottom:12 }}>
-            {l.access.map((a,j)=>(
-              <span key={j} style={{ background:a.includes("✅")?"rgba(0,232,122,0.08)":C.surface, border:`1px solid ${a.includes("✅")?"rgba(0,232,122,0.25)":C.border}`, borderRadius:7, padding:"4px 9px", fontSize:11, color:a.includes("✅")?C.green:C.soft }}>{a}</span>
-            ))}
-          </div>
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", paddingTop:10, borderTop:`1px solid ${C.border}` }}>
-            <div style={{ fontSize:11, color:C.soft }}>🕐 {l.hours}</div>
-            <div style={{ display:"flex", gap:5 }}>
-              {l.amenities.slice(0,3).map((a,k)=>(
-                <span key={k} style={{ fontSize:10, color:C.muted }}>{a}{k<2?" ·":""}</span>
-              ))}
-            </div>
-          </div>
-        </div>
-      ))}
-      <div style={{ background:"rgba(167,139,250,0.06)", border:"1px solid rgba(167,139,250,0.2)", borderRadius:12, padding:"12px 14px", display:"flex", alignItems:"center", gap:10 }}>
-        <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-          <path d="M9 2l3 4H6L9 2zM6 6l3 10L3 6h3zM12 6h3L9 16l3-10z" stroke={C.purple} strokeWidth="1.2" strokeLinejoin="round" fill="none"/>
-        </svg>
-        <div style={{ fontSize:12, color:C.soft }}>Pro members get one-tap day-pass booking and real-time lounge crowding levels.</div>
-      </div>
-    </div>
-  );
-}
-
-// ── Alternate Flights ──────────────────────────────────────────
-function AlternateFlightsScreen({ flight, onBack }) {
-  const alts = [
-    { iata:"LY 002", dep:"MIA", arr:"TLV", depTime:"11:30 PM", arrTime:"6:30 PM+1", date:"Sun Jun 14", seats:14, price:"Same fare", aircraft:"Boeing 787-9", stops:"Nonstop", badge:"BEST OPTION", badgeColor:C.green },
-    { iata:"LY 004", dep:"MIA", arr:"TLV", depTime:"8:45 AM", arrTime:"3:45 AM+2", date:"Mon Jun 15", seats:6, price:"Same fare", aircraft:"Boeing 787-9", stops:"Nonstop", badge:"NEXT DAY", badgeColor:C.yellow },
-    { iata:"AA 100 + LY 315", dep:"MIA", arr:"TLV", depTime:"7:00 AM", arrTime:"11:55 PM", date:"Sun Jun 14", seats:22, price:"+$180", aircraft:"B777 + B737", stops:"1 stop · JFK", badge:"WITH CONNECTION", badgeColor:C.muted },
-    { iata:"UA 90 + LY 321", dep:"MIA", arr:"TLV", depTime:"6:00 AM", arrTime:"2:30 AM+2", date:"Mon Jun 15", seats:8, price:"+$240", aircraft:"B767 + B737", stops:"1 stop · EWR", badge:null, badgeColor:null },
-  ];
-  return (
-    <div style={{ position:"fixed", inset:0, background:C.bg, zIndex:55, overflowY:"auto" }}>
-      <div style={{ background:"rgba(4,7,14,0.98)", borderBottom:`1px solid ${C.border}`, padding:"14px 16px", display:"flex", alignItems:"center", gap:10, position:"sticky", top:0 }}>
-        <div onClick={onBack} style={{ width:34, height:34, borderRadius:17, background:C.surface, border:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", fontSize:18, color:C.accent }}>←</div>
-        <div>
-          <div style={{ fontSize:16, fontWeight:800, color:C.text }}>Alternate Flights</div>
-          <div style={{ fontSize:12, color:C.soft }}>{flight?.iata || "LY 018"} · MIA → TLV · Jun 14</div>
-        </div>
-        <div style={{ background:"rgba(255,58,84,0.1)", border:"1px solid rgba(255,58,84,0.3)", borderRadius:8, padding:"4px 10px", fontSize:10, fontWeight:700, color:C.red, fontFamily:C.mono }}>CANCELLED</div>
-      </div>
-      <div style={{ padding:"16px 16px 100px" }}>
-        <div style={{ background:"rgba(255,200,0,0.07)", border:"1px solid rgba(255,200,0,0.25)", borderRadius:14, padding:"12px 16px", marginBottom:16, display:"flex", alignItems:"center", gap:10 }}>
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-            <path d="M11 2L4 12h6l-1 6 7-10h-6l1-6z" fill={C.yellow} opacity="0.9"/>
-          </svg>
-          <div style={{ flex:1 }}>
-            <div style={{ fontSize:13, fontWeight:700, color:C.yellow }}>Act fast — seats are filling up</div>
-            <div style={{ fontSize:11, color:C.soft }}>We found {alts.length} alternatives on your route. Prices may change.</div>
-          </div>
-        </div>
-
-        {alts.map((a,i)=>(
-          <div key={i} style={{ background:C.card, borderRadius:18, border:`1px solid ${i===0?"rgba(0,232,122,0.3)":C.border}`, padding:16, marginBottom:12, animation:"cardIn 0.4s ease", position:"relative" }}>
-            {a.badge&&(
-              <div style={{ position:"absolute", top:-11, left:16, background:a.badgeColor, borderRadius:20, padding:"3px 12px", fontSize:9, fontWeight:800, color:"#000", fontFamily:C.mono, letterSpacing:1 }}>{a.badge}</div>
-            )}
-            <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:12, marginTop:a.badge?6:0 }}>
-              <div>
-                <div style={{ fontSize:16, fontWeight:800, color:C.text, fontFamily:C.mono, marginBottom:2 }}>{a.iata}</div>
-                <div style={{ fontSize:11, color:C.soft }}>{a.aircraft} · {a.stops}</div>
-              </div>
-              <div style={{ textAlign:"right" }}>
-                <div style={{ fontSize:15, fontWeight:800, color:a.price==="Same fare"?C.green:C.text }}>{a.price}</div>
-                <div style={{ fontSize:10, color:C.muted }}>{a.seats} seats left</div>
-              </div>
-            </div>
-            <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:14 }}>
-              <div style={{ textAlign:"center", minWidth:44 }}>
-                <div style={{ fontSize:22, fontWeight:800, color:C.text, fontFamily:C.mono, lineHeight:1 }}>{a.dep}</div>
-                <div style={{ fontSize:11, color:C.soft, marginTop:3 }}>{a.depTime}</div>
-              </div>
-              <div style={{ flex:1, height:1, background:C.border, position:"relative" }}>
-                <div style={{ position:"absolute", top:"50%", left:"50%", transform:"translate(-50%,-50%)", fontSize:16 }}>✈</div>
-              </div>
-              <div style={{ textAlign:"center", minWidth:44 }}>
-                <div style={{ fontSize:22, fontWeight:800, color:C.text, fontFamily:C.mono, lineHeight:1 }}>{a.arr}</div>
-                <div style={{ fontSize:11, color:C.soft, marginTop:3 }}>{a.arrTime}</div>
-              </div>
-            </div>
-            <div style={{ display:"flex", gap:8 }}>
-              <div onClick={()=>alert(`Calling El Al to rebook onto ${a.iata}...\n\nIn the live app this connects directly to the airline or opens their rebooking page.`)} style={{ flex:1, background:i===0?`linear-gradient(135deg,${C.green},#007a44)`:`linear-gradient(135deg,${C.accent},#007aaa)`, borderRadius:11, padding:"12px 0", textAlign:"center", cursor:"pointer" }}>
-                <span style={{ fontSize:13, fontWeight:800, color:"#000" }}>Select This Flight →</span>
-              </div>
-              <div onClick={()=>alert(`Sharing ${a.iata} option with your group...`)} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:11, padding:"12px 14px", cursor:"pointer" }}>
-                <span style={{ fontSize:13 }}>🔗</span>
-              </div>
-            </div>
-          </div>
-        ))}
-
-        <div style={{ background:C.surface, borderRadius:14, border:`1px solid ${C.border}`, padding:"14px 16px", display:"flex", alignItems:"center", gap:10 }}>
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-            <path d="M3 3h4l1.5 4-2 1.5a11 11 0 005 5L13 11l4 1.5V17a2 2 0 01-2 2A16 16 0 013 3z" stroke={C.accent} strokeWidth="1.3" fill="none"/>
-          </svg>
-          <div style={{ flex:1 }}>
-            <div style={{ fontSize:13, fontWeight:700, color:C.text }}>Need help rebooking?</div>
-            <div style={{ fontSize:11, color:C.soft }}>El Al customer service · 1-800-223-6700</div>
-          </div>
-          <div onClick={()=>alert("Calling El Al...")} style={{ background:`linear-gradient(135deg,${C.accent},#007aaa)`, borderRadius:10, padding:"8px 14px", cursor:"pointer" }}>
-            <span style={{ fontSize:12, fontWeight:700, color:"#000" }}>Call</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Seat Tracker ───────────────────────────────────────────────
-function SeatTrackerScreen({ onBack }) {
-  const [watching, setWatching] = useState(["32A","32B","32C"]);
-  const [wishlist, setWishlist] = useState([
-    { seat:"12A", class:"Economy", type:"Window", desc:"Exit row — extra legroom", available:false, price:"Free" },
-    { seat:"14C", class:"Economy", type:"Aisle", desc:"Near front, quick exit", available:true, price:"Free" },
-    { seat:"2A", class:"Business", type:"Window", desc:"Lie-flat bed · extra cost", available:false, price:"+$1,200" },
-    { seat:"11A", class:"Economy", type:"Window", desc:"Exit row — extra legroom", available:true, price:"Free" },
-  ]);
-  const flights = [
-    { iata:"LY 018", dep:"MIA", arr:"TLV", date:"Jun 14", seats:["32A","32B","32C","32D","32E","32F"] },
-    { iata:"LY 347", dep:"TLV", arr:"ZRH", date:"Jul 2", seats:["18C","18D","18E"] },
-    { iata:"LX 064", dep:"ZRH", arr:"MIA", date:"Jul 2", seats:["24F","24G","24H"] },
-  ];
-  return (
-    <div style={{ position:"fixed", inset:0, background:C.bg, zIndex:55, overflowY:"auto" }}>
-      <div style={{ background:"rgba(4,7,14,0.98)", borderBottom:`1px solid ${C.border}`, padding:"14px 16px", display:"flex", alignItems:"center", gap:10, position:"sticky", top:0 }}>
-        <div onClick={onBack} style={{ width:34, height:34, borderRadius:17, background:C.surface, border:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", fontSize:18, color:C.accent }}>←</div>
-        <div style={{ flex:1 }}>
-          <div style={{ fontSize:16, fontWeight:800, color:C.text }}>Seat Tracker</div>
-          <div style={{ fontSize:12, color:C.soft }}>We watch for better seats and alert you instantly</div>
-        </div>
-        <div style={{ background:"rgba(0,232,122,0.1)", border:"1px solid rgba(0,232,122,0.25)", borderRadius:8, padding:"4px 10px", fontSize:10, fontWeight:700, color:C.green, fontFamily:C.mono }}>WATCHING</div>
-      </div>
-      <div style={{ padding:"16px 16px 100px" }}>
-
-        {/* Current seats */}
-        <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10 }}>YOUR CURRENT SEATS</div>
-        {flights.map(f=>(
-          <div key={f.iata} style={{ background:C.card, borderRadius:14, border:`1px solid ${C.border}`, padding:"14px 16px", marginBottom:10 }}>
-            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
-              <div>
-                <div style={{ fontSize:14, fontWeight:800, color:C.text, fontFamily:C.mono }}>{f.iata}</div>
-                <div style={{ fontSize:11, color:C.soft }}>{f.dep} → {f.arr} · {f.date}</div>
-              </div>
-              <div style={{ display:"flex", gap:5 }}>
-                {f.seats.map(s=>(
-                  <div key={s} style={{ background:"rgba(0,200,240,0.1)", border:"1px solid rgba(0,200,240,0.3)", borderRadius:8, padding:"5px 9px", fontSize:12, fontWeight:800, color:C.accent, fontFamily:C.mono }}>{s}</div>
-                ))}
-              </div>
-            </div>
-          </div>
-        ))}
-
-        {/* Better seat wishlist */}
-        <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10, marginTop:20 }}>WATCHING FOR BETTER SEATS</div>
-        <div style={{ background:"rgba(0,200,240,0.05)", border:"1px solid rgba(0,200,240,0.15)", borderRadius:12, padding:"10px 14px", marginBottom:14, display:"flex", alignItems:"center", gap:8 }}>
-          <div style={{ fontSize:12, color:C.soft }}>We check seat availability every 30 minutes and alert you the moment a better seat opens up. It's free to change if your ticket allows it.</div>
-        </div>
-
-        {wishlist.map((s,i)=>(
-          <div key={i} style={{ background:C.card, borderRadius:14, border:`1px solid ${s.available?"rgba(0,232,122,0.3)":C.border}`, padding:"14px 16px", marginBottom:10, animation:"cardIn 0.4s ease" }}>
-            <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-              <div style={{ width:48, height:48, borderRadius:12, background:s.available?"rgba(0,232,122,0.12)":"rgba(255,255,255,0.05)", border:`2px solid ${s.available?"rgba(0,232,122,0.4)":C.border}`, display:"flex", alignItems:"center", justifyContent:"center" }}>
-                <div style={{ fontFamily:C.mono, fontSize:14, fontWeight:800, color:s.available?C.green:C.soft }}>{s.seat}</div>
-              </div>
-              <div style={{ flex:1 }}>
-                <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:3 }}>
-                  <span style={{ fontSize:14, fontWeight:700, color:C.text }}>{s.type} · {s.class}</span>
-                  {s.available&&<span style={{ background:"rgba(0,232,122,0.12)", border:"1px solid rgba(0,232,122,0.3)", borderRadius:20, padding:"2px 8px", fontSize:10, fontWeight:800, color:C.green, fontFamily:C.mono }}>OPEN NOW!</span>}
-                </div>
-                <div style={{ fontSize:12, color:C.soft, marginBottom:2 }}>{s.desc}</div>
-                <div style={{ fontSize:12, color:s.price==="Free"?C.green:C.yellow, fontWeight:700 }}>{s.price}</div>
-              </div>
-              {s.available ? (
-                <div onClick={()=>alert(`Requesting seat change to ${s.seat}...\n\nIn the live app this opens the airline's seat selection page with your booking reference pre-filled.`)} style={{ background:`linear-gradient(135deg,${C.green},#007a44)`, borderRadius:11, padding:"10px 14px", cursor:"pointer", flexShrink:0 }}>
-                  <span style={{ fontSize:12, fontWeight:800, color:"#000" }}>Grab It →</span>
-                </div>
-              ) : (
-                <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:11, padding:"10px 12px", flexShrink:0 }}>
-                  <span style={{ fontSize:11, color:C.muted }}>Watching 👁</span>
-                </div>
-              )}
-            </div>
-          </div>
-        ))}
-
-        <div onClick={()=>alert("Add seat to watchlist — in the live app you search the seat map and tap any seat to watch it.")} style={{ background:C.surface, border:`1px dashed ${C.border}`, borderRadius:14, padding:"14px 0", textAlign:"center", cursor:"pointer", marginTop:4 }}>
-          <span style={{ fontSize:13, fontWeight:700, color:C.soft }}>+ Add seat to watchlist</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Airport Intelligence ───────────────────────────────────────
-function AirportIntelligenceScreen({ onBack }) {
-  const airports = [
-    { code:"MIA", name:"Miami International", city:"Miami, FL", status:"good", delay:"Avg 4 min", weather:"☀️ 88°F Sunny", gates:"Normal operations", tip:"Your departure airport — all clear", color:C.green },
-    { code:"TLV", name:"Ben Gurion International", city:"Tel Aviv, Israel", status:"good", delay:"Avg 8 min", weather:"☀️ 82°F Clear", gates:"Normal operations", tip:"Your arrival airport — no delays", color:C.green },
-    { code:"ZRH", name:"Zurich Airport", city:"Zurich, Switzerland", status:"warning", delay:"Avg 28 min", weather:"🌧️ 58°F Rain", gates:"Ground stop lifted — residual delays", tip:"Your connection airport — allow extra time", color:C.yellow },
-    { code:"JFK", name:"John F. Kennedy", city:"New York, NY", status:"bad", delay:"Avg 62 min", weather:"⛈️ 64°F Thunderstorms", gates:"Ground delay program active", tip:"Not your airport — avoid connections here today", color:C.red },
-    { code:"LHR", name:"London Heathrow", city:"London, UK", status:"good", delay:"Avg 12 min", weather:"🌥️ 61°F Overcast", gates:"Normal operations", tip:"Normal operations", color:C.green },
-    { code:"CDG", name:"Charles de Gaulle", city:"Paris, France", status:"warning", delay:"Avg 35 min", weather:"🌦️ 63°F Showers", gates:"Runway 27L closed for maintenance", tip:"Significant delays — avoid if possible", color:C.yellow },
-  ];
-  const statusIcon = { good:"▲", warning:"▲", bad:"▲" };
-  const statusLabel = { good:"Normal", warning:"Delays", bad:"Severe" };
-  return (
-    <div style={{ position:"fixed", inset:0, background:C.bg, zIndex:55, overflowY:"auto" }}>
-      <div style={{ background:"rgba(4,7,14,0.98)", borderBottom:`1px solid ${C.border}`, padding:"14px 16px", display:"flex", alignItems:"center", gap:10, position:"sticky", top:0 }}>
-        <div onClick={onBack} style={{ width:34, height:34, borderRadius:17, background:C.surface, border:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", fontSize:18, color:C.accent }}>←</div>
-        <div style={{ flex:1 }}>
-          <div style={{ fontSize:16, fontWeight:800, color:C.text }}>Airport Intelligence</div>
-          <div style={{ fontSize:12, color:C.soft }}>Real-time conditions at major airports</div>
-        </div>
-      </div>
-      <div style={{ padding:"16px 16px 100px" }}>
-
-        {/* Your airports first */}
-        <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10 }}>YOUR TRIP AIRPORTS</div>
-        {airports.slice(0,3).map(a=>(
-          <div key={a.code} style={{ background:C.card, borderRadius:18, border:`2px solid ${a.color}30`, padding:16, marginBottom:12, animation:"cardIn 0.4s ease" }}>
-            <div style={{ display:"flex", alignItems:"flex-start", gap:12, marginBottom:12 }}>
-              <div style={{ width:52, height:52, borderRadius:14, background:`${a.color}14`, border:`2px solid ${a.color}40`, display:"flex", alignItems:"center", justifyContent:"center" }}>
-                <span style={{ fontSize:16, fontWeight:800, color:a.color, fontFamily:C.mono }}>{a.code}</span>
-              </div>
-              <div style={{ flex:1 }}>
-                <div style={{ fontSize:15, fontWeight:800, color:C.text, marginBottom:2 }}>{a.name}</div>
-                <div style={{ fontSize:12, color:C.soft }}>{a.city}</div>
-              </div>
-              <div style={{ background:`${a.color}14`, border:`1px solid ${a.color}40`, borderRadius:20, padding:"4px 12px", display:"flex", alignItems:"center", gap:5 }}>
-                <span style={{ fontSize:12 }}>{statusIcon[a.status]}</span>
-                <span style={{ fontSize:11, fontWeight:700, color:a.color, fontFamily:C.mono }}>{statusLabel[a.status]}</span>
-              </div>
-            </div>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:10 }}>
-              {[["AVG DELAY",a.delay],["WEATHER",a.weather],["GATES",a.gates]].map(([label,val])=>(
-                <div key={label} style={{ background:C.surface, borderRadius:10, padding:"10px", border:`1px solid ${C.border}` }}>
-                  <div style={{ fontSize:9, color:C.muted, fontFamily:C.mono, marginBottom:4, letterSpacing:1 }}>{label}</div>
-                  <div style={{ fontSize:12, color:C.text, fontWeight:600 }}>{val}</div>
-                </div>
-              ))}
-            </div>
-            <div style={{ background:`${a.color}08`, border:`1px solid ${a.color}25`, borderRadius:10, padding:"9px 12px", display:"flex", alignItems:"center", gap:8 }}>
-
-              <span style={{ fontSize:12, color:a.color, fontWeight:600 }}>{a.tip}</span>
-            </div>
-          </div>
-        ))}
-
-        {/* Other major airports */}
-        <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10, marginTop:8 }}>MAJOR HUBS TODAY</div>
-        {airports.slice(3).map(a=>(
-          <div key={a.code} style={{ background:C.card, borderRadius:14, border:`1px solid ${C.border}`, padding:"12px 14px", marginBottom:8, display:"flex", alignItems:"center", gap:12 }}>
-            <div style={{ width:40, height:40, borderRadius:10, background:`${a.color}14`, border:`1px solid ${a.color}30`, display:"flex", alignItems:"center", justifyContent:"center" }}>
-              <span style={{ fontSize:11, fontWeight:800, color:a.color, fontFamily:C.mono }}>{a.code}</span>
-            </div>
-            <div style={{ flex:1 }}>
-              <div style={{ fontSize:13, fontWeight:700, color:C.text }}>{a.name}</div>
-              <div style={{ fontSize:11, color:C.soft }}>{a.delay} · {a.weather}</div>
-            </div>
-            <div style={{ background:`${a.color}14`, border:`1px solid ${a.color}30`, borderRadius:20, padding:"3px 10px" }}>
-              <span style={{ fontSize:10, fontWeight:700, color:a.color, fontFamily:C.mono, letterSpacing:0.5 }}>{statusLabel[a.status].toUpperCase()}</span>
-            </div>
-          </div>
-        ))}
-
-        <div style={{ background:"rgba(0,200,240,0.05)", border:"1px solid rgba(0,200,240,0.15)", borderRadius:12, padding:"12px 14px", marginTop:8, display:"flex", gap:10 }}>
-          <div style={{ fontSize:12, color:C.soft, lineHeight:1.5 }}>Airport conditions update every 15 minutes via FAA, FlightAware, and local ATC data feeds.</div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Vintage SVG icons ─────────────────────────────────────────
-function VintageIcon({ id, size=26, color="#7a9ab8" }) {
-  const icons = {
-    flights: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 00-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z" fill={color}/></svg>),
-    wallet: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><rect x="2" y="5" width="20" height="14" rx="2" stroke={color} strokeWidth="1.8"/><path d="M2 9h20M16 14h2" stroke={color} strokeWidth="1.8" strokeLinecap="round"/><circle cx="17" cy="14" r="1" fill={color}/></svg>),
-    lounges: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      {/* Martini glass — universal VIP lounge symbol */}
-      <path d="M6 3h12L12 11 6 3z" stroke={color} strokeWidth="1.6" strokeLinejoin="round" fill="none"/>
-      <line x1="12" y1="11" x2="12" y2="19" stroke={color} strokeWidth="1.6" strokeLinecap="round"/>
-      <line x1="8" y1="19" x2="16" y2="19" stroke={color} strokeWidth="1.6" strokeLinecap="round"/>
-      <circle cx="15" cy="6" r="1.5" fill={color} opacity="0.6"/>
-    </svg>),
-    passport: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><rect x="4" y="2" width="16" height="20" rx="2" stroke={color} strokeWidth="1.8"/><circle cx="12" cy="10" r="3" stroke={color} strokeWidth="1.5"/><path d="M8 17h8M9 14h6" stroke={color} strokeWidth="1.5" strokeLinecap="round"/></svg>),
-    account: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="4" stroke={color} strokeWidth="1.8"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" stroke={color} strokeWidth="1.8" strokeLinecap="round"/></svg>),
-  };
-  return icons[id] || null;
-}
-
-function BottomNav({ active, onNav }) {
-  const tabs = [
-    { id:"flights", label:"Flights" },
-    { id:"wallet", label:"Wallet" },
-    { id:"lounges", label:"Lounges" },
-    { id:"passport", label:"Passport" },
-  ];
-  return (
-    <div style={{ position:"fixed", bottom:0, left:0, right:0, background:"rgba(4,7,14,0.98)", borderTop:`1px solid ${C.border}`, zIndex:20 }}>
-      <div style={{ display:"flex", padding:"8px 8px 22px", maxWidth:480, margin:"0 auto" }}>
-        {tabs.map(t=>(
-          <div key={t.id} onClick={()=>onNav(t.id)} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:4, cursor:"pointer", padding:"6px 0" }}>
-            <VintageIcon id={t.id} size={24} color={active===t.id?C.accent:C.muted}/>
-            <span style={{ fontSize:9, fontWeight:700, fontFamily:C.mono, letterSpacing:1, color:active===t.id?C.accent:C.muted }}>{t.label.toUpperCase()}</span>
-            {active===t.id&&<div style={{ width:20, height:2, borderRadius:1, background:C.accent }}/>}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function Onboarding({ onDone }) {
-  const [step, setStep] = useState(0);
-  const slideIcons = [
-    // Shield — protection
-    <svg width="72" height="72" viewBox="0 0 72 72" fill="none">
-      <path d="M36 8L14 18v18c0 13 9.8 25.2 22 28 12.2-2.8 22-15 22-28V18L36 8z" stroke={C.accent} strokeWidth="2" fill={`${C.accent}12`}/>
-      <path d="M26 36l7 7 14-14" stroke={C.accent} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
-      <circle cx="36" cy="36" r="30" stroke={C.accent} strokeWidth="0.8" opacity="0.2"/>
-    </svg>,
-    // Propeller — inbound tracking
-    <svg width="72" height="72" viewBox="0 0 72 72" fill="none">
-      <circle cx="36" cy="36" r="34" stroke={C.accent} strokeWidth="1" opacity="0.25"/>
-      <circle cx="36" cy="36" r="24" stroke={C.accent} strokeWidth="0.8" opacity="0.15"/>
-      <path d="M36 36 Q22 18 28 8 Q42 12 36 36Z" fill={C.accent} opacity="0.9"/>
-      <path d="M36 36 Q54 32 62 38 Q58 52 36 36Z" fill={C.accent} opacity="0.9"/>
-      <path d="M36 36 Q22 48 12 44 Q14 30 36 36Z" fill={C.accent} opacity="0.9"/>
-      <circle cx="36" cy="36" r="8" fill={C.bg} stroke={C.accent} strokeWidth="2"/>
-      <circle cx="36" cy="36" r="4" fill={C.accent}/>
-      <circle cx="36" cy="36" r="1.5" fill={C.bg}/>
-    </svg>,
-    // Clock/gauge — leave-by time
-    <svg width="72" height="72" viewBox="0 0 72 72" fill="none">
-      <circle cx="36" cy="36" r="32" stroke={C.accent} strokeWidth="1.5" fill={`${C.accent}08`}/>
-      <circle cx="36" cy="36" r="28" stroke={C.accent} strokeWidth="0.5" opacity="0.3"/>
-      {[0,30,60,90,120,150,180,210,240,270,300,330].map((deg,i)=>{
-        const r=Math.PI*deg/180; const x1=36+24*Math.sin(r); const y1=36-24*Math.cos(r);
-        const x2=36+(i%3===0?20:22)*Math.sin(r); const y2=36-(i%3===0?20:22)*Math.cos(r);
-        return <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke={C.accent} strokeWidth={i%3===0?"1.5":"0.8"} opacity="0.6"/>;
-      })}
-      <line x1="36" y1="36" x2="36" y2="14" stroke={C.accent} strokeWidth="2" strokeLinecap="round"/>
-      <line x1="36" y1="36" x2="50" y2="42" stroke={C.accent} strokeWidth="1.5" strokeLinecap="round"/>
-      <circle cx="36" cy="36" r="3" fill={C.accent}/>
-    </svg>,
-    // Chain link — share
-    <svg width="72" height="72" viewBox="0 0 72 72" fill="none">
-      <circle cx="36" cy="36" r="34" stroke={C.accent} strokeWidth="1" opacity="0.2"/>
-      <rect x="16" y="26" width="18" height="12" rx="6" stroke={C.accent} strokeWidth="2" fill="none"/>
-      <rect x="38" y="26" width="18" height="12" rx="6" stroke={C.accent} strokeWidth="2" fill="none"/>
-      <line x1="34" y1="32" x2="38" y2="32" stroke={C.accent} strokeWidth="2" strokeLinecap="round"/>
-      <circle cx="20" cy="20" r="5" stroke={C.accent} strokeWidth="1.5" fill="none"/>
-      <circle cx="52" cy="20" r="5" stroke={C.accent} strokeWidth="1.5" fill="none"/>
-      <circle cx="36" cy="52" r="5" stroke={C.accent} strokeWidth="1.5" fill="none"/>
-      <line x1="24" y1="23" x2="30" y2="28" stroke={C.accent} strokeWidth="1" opacity="0.5"/>
-      <line x1="48" y1="23" x2="42" y2="28" stroke={C.accent} strokeWidth="1" opacity="0.5"/>
-      <line x1="36" y1="47" x2="36" y2="38" stroke={C.accent} strokeWidth="1" opacity="0.5"/>
-    </svg>,
-  ];
-  const slides = [
-    { title:"Never Miss a Change", body:"We check your flights every 15 minutes across 3 data sources and alert you the instant anything changes — often before the airline does." },
-    { title:"Know Before You Go", body:"We track the incoming aircraft that becomes your flight, so you get the earliest possible warning if a delay is coming your way." },
-    { title:"Leave at the Right Time", body:"My Runway calculates exactly when to leave home based on live traffic, your airport, and your flight — no more guessing." },
-    { title:"Share with Anyone", body:"Send a live tracking link to whoever's picking you up. They see your flight in real time — no app needed." },
-  ];
-  const s = slides[step];
-  const last = step === slides.length - 1;
-  return (
-    <div style={{ position:"fixed", inset:0, background:C.bg, zIndex:90, display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto" }}>
-      <div style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"32px", textAlign:"center" }}>
-        <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:48 }}>
-<svg width="36" height="36" viewBox="0 0 44 44">
-            <circle cx="22" cy="22" r="21" fill="none" stroke={C.accent} strokeWidth="1.5" opacity="0.4"/>
-            <circle cx="22" cy="22" r="18" fill="none" stroke={C.accent} strokeWidth="0.5" opacity="0.2"/>
-            <ellipse cx="22" cy="22" rx="14" ry="5" fill={C.accent} transform="rotate(30 22 22)" style={{transformOrigin:"22px 22px"}}/>
-            <ellipse cx="22" cy="22" rx="14" ry="5" fill={C.accent} transform="rotate(150 22 22)" style={{transformOrigin:"22px 22px"}}/>
-            <ellipse cx="22" cy="22" rx="14" ry="5" fill={C.accent} transform="rotate(270 22 22)" style={{transformOrigin:"22px 22px"}}/>
-            <circle cx="22" cy="22" r="7" fill={C.bg}/>
-            <circle cx="22" cy="22" r="5.5" fill={C.bg} stroke={C.accent} strokeWidth="1.8"/>
-            <circle cx="22" cy="22" r="3" fill={C.accent}/>
-            <circle cx="22" cy="22" r="1.2" fill={C.bg}/>
-          </svg>
-          <span style={{ fontFamily:C.display, fontSize:22, color:C.accent, letterSpacing:3, fontStyle:"italic" }}>MY RUNWAY</span>
-        </div>
-        <div style={{ width:120, height:120, borderRadius:60, background:"rgba(0,200,240,0.06)", border:"1px solid rgba(0,200,240,0.18)", display:"flex", alignItems:"center", justifyContent:"center", marginBottom:36, animation:"fadeUp 0.4s ease" }}>{slideIcons[step]}</div>
-        <div key={step} style={{ animation:"fadeUp 0.4s ease" }}>
-          <div style={{ fontFamily:C.display, fontSize:26, fontWeight:400, fontStyle:"italic", color:C.text, marginBottom:14 }}>{s.title}</div>
-          <div style={{ fontSize:15, color:C.soft, lineHeight:1.6, maxWidth:320, margin:"0 auto" }}>{s.body}</div>
-        </div>
-      </div>
-      <div style={{ padding:"0 32px 40px" }}>
-        <div style={{ display:"flex", gap:6, justifyContent:"center", marginBottom:28 }}>
-          {slides.map((_,i)=>(
-            <div key={i} style={{ width:i===step?24:8, height:8, borderRadius:4, background:i===step?C.accent:C.border, transition:"all 0.3s" }}/>
-          ))}
-        </div>
-        <div onClick={()=>last?onDone():setStep(step+1)} style={{ background:`linear-gradient(135deg,${C.accent},#007aaa)`, borderRadius:14, padding:"16px 0", textAlign:"center", fontWeight:800, fontSize:16, color:"#000", cursor:"pointer" }}>
-          {last?"Get Started ✈":"Next"}
-        </div>
-        {!last&&<div onClick={onDone} style={{ textAlign:"center", marginTop:16, fontSize:14, color:C.muted, cursor:"pointer" }}>Skip</div>}
-      </div>
-      <style>{`@keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}`}</style>
-    </div>
-  );
-}
+const URLQ = typeof location !== "undefined" ? new URLSearchParams(location.search) : new URLSearchParams();
 
 export default function MyRunway() {
   const [tab, setTab] = useState("flights");
-  const [showAdd, setShowAdd] = useState(false);
-  const [showShare, setShowShare] = useState(false);
-  const [showCorp, setShowCorp] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
-  const [showCancellations, setShowCancellations] = useState(false);
-  const [showCancelAlert, setShowCancelAlert] = useState(false); // Only shows when real cancellation detected
-  const cancelledFlight = FLIGHTS[0]; // Demo alert
-  const [leaveState, setLeaveState] = useState("later");
-  const [navIdx, setNavIdx] = useState(0);
-  const [tick, setTick] = useState(0);
-  const [isDark, setIsDark] = useState(true);
-  const [homeAddress, setHomeAddress] = useState("Miami, FL (Davie)");
-  const [accountType, setAccountType] = useState("personal"); // "personal" | "pro" | "corporate"
-  const [showOnboarding, setShowOnboarding] = useState(true);
-  const [showWeather, setShowWeather] = useState(false);
-  const [showFamily, setShowFamily] = useState(false);
-  const [showAlternates, setShowAlternates] = useState(false);
-  const [showSeatTracker, setShowSeatTracker] = useState(false);
-  const [showAirportIntel, setShowAirportIntel] = useState(false);
+  const [overlay, setOverlay] = useState(null); // add | share | settings | corp | plans | cancellations | alternates | seats | intel | weather | family
+  const [detail, setDetail] = useState(null);
+  const [isDark, setIsDark] = usePersistentState("dark", true);
+  const [navIdx, setNavIdx] = usePersistentState("navIdx", 0);
+  const [homeAddress, setHomeAddress] = usePersistentState("home", "Miami, FL (Davie)");
+  const [stayAddress, setStayAddress] = usePersistentState("stay", "");
+  const [prefs, setPrefs] = usePersistentState("prefs", { driveMins:45, trafficMins:15, intlBufferMins:180, domesticBufferMins:120 });
+  const [withKids, setWithKids] = usePersistentState("kids", TRIP.withKids);
+  const [accountType, setAccountType] = usePersistentState("account", "personal");
+  const [onboarded, setOnboarded] = usePersistentState("onboarded", false);
+  const [demoClock, setDemoClock] = usePersistentState("demoClock", true);
+  const [savedScenario, setScenario] = usePersistentState("scenario", "off");
+  const [userFlights, setUserFlights] = usePersistentState("userFlights", []);
+  const [cancelDismissed, setCancelDismissed] = useState(false);
+  const [liveState, setLiveState] = useState({});
+  const [alternatesFor, setAlternatesFor] = useState(null);
 
+  const scenario = URLQ.get("demo") || savedScenario;
+  const showOnboarding = !onboarded && URLQ.get("onboarding") !== "0";
+  const clock = useMemo(() => makeClock(URLQ.has("clock") ? true : demoClock, URLQ.get("clock")), [demoClock]);
+  const now = useNow(clock);
+  const realNow = useNow(REAL_CLOCK);
+
+  // Theme is a module-level palette read by every component (kept from the original single-file design)
   C = isDark ? DARK : LIGHT;
-  ACCOUNT_TYPE = accountType;
 
-  useEffect(()=>{ const i=setInterval(()=>setTick(n=>n+1),2000); return()=>clearInterval(i); },[]);
+  const flights = useMemo(() => [...FLIGHTS, ...userFlights].sort((a,b)=>schedule(a).dep - schedule(b).dep), [userFlights]);
+
+  // Live overlay: our own /api/flight proxy (keys stay server-side). Re-check every 5 min.
+  useEffect(() => {
+    if (scenario !== "off") return;
+    let alive = true;
+    async function poll() {
+      const results = await Promise.all(flights.map(async f => [f.id, await fetchLive(f)]));
+      if (!alive) return;
+      setLiveState(Object.fromEntries(results.map(([id, r]) => [id, { ...r, updatedAt: r.updatedAt || new Date().toISOString() }])));
+    }
+    poll();
+    const t = setInterval(poll, 5 * 60000);
+    return () => { alive = false; clearInterval(t); };
+  }, [flights, scenario]);
+
+  const mockState = useMemo(() => scenario === "off" ? null :
+    Object.fromEntries(flights.map(f => [f.id, { mock:true, configured:true, live: mockLive(f, scenario), updatedAt: null }])), [flights, scenario]);
+  const state = mockState || liveState;
+  const getLive = id => state[id]?.live || null;
+  const getMeta = id => state[id] || null;
+
+  const cancelled = flights.find(f => getLive(f.id)?.status === "Cancelled");
+  const hasCancellation = !!cancelled;
+  const liveOn = scenario !== "off" || Object.values(liveState).some(s => s?.configured);
+  const upcoming = flights.filter(f => flightPhase(f, getLive(f.id), now) !== "completed");
+  const nextFlight = upcoming[0] || flights[flights.length - 1];
+
+  useEffect(() => {
+    const h = e => { if (e.key === "Escape") { setDetail(null); setOverlay(null); } };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, []);
+
+  function exportTrip() {
+    const list = upcoming.length ? upcoming : flights;
+    const leaveBy = Object.fromEntries(list.map(f => [f.id, computeLeaveBy(f, null, prefs).leaveBy]));
+    downloadText("my-runway-trip.ics", buildTripIcs(list, { now: realNow, leaveBy }));
+    notify("Calendar file downloaded: flights, leave-by alarms and check-in reminders");
+  }
+
+  const close = () => setOverlay(null);
+  const tools = [
+    ["weather","sun","Weather",()=>setOverlay("weather")],
+    ["intel","radar","Airports",()=>setOverlay("intel")],
+    ["seats","seat","Seats",()=>setOverlay("seats")],
+    ["family","users","Family",()=>setOverlay("family")],
+    ["cancel","bell","Alerts",()=>setOverlay("cancellations")],
+  ];
+  const titles = { flights:[accountType==="corporate"?"Team Flights":"My Flights",`${TRIP.name} · ${TRIP.range}`], wallet:["Boarding Passes","Hold your passes, works offline"], lounges:["Airport Lounges","Find lounges & access rules"], passport:["My Passport","Your lifetime flying history"] };
+  const iconBtn = { background:"rgba(255,255,255,0.05)", border:`1px solid ${C.border}`, borderRadius:8, padding:"7px", cursor:"pointer", display:"flex", position:"relative" };
 
   return (
-    <div style={{ background:C.bg, minHeight:"100vh", display:"flex", flexDirection:"column", fontFamily:C.sans, maxWidth:480, margin:"0 auto", position:"relative" }}>
+    <div style={{ background:C.bg, minHeight:"100vh", display:"flex", flexDirection:"column", fontFamily:C.sans, maxWidth:480, margin:"0 auto", position:"relative", color:C.text }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400;1,700&family=Special+Elite&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400;1,700&display=swap');
         ::-webkit-scrollbar{display:none}
         *{box-sizing:border-box}
+        body{background:${C.bg}}
         @keyframes cardIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
-        @keyframes slideDown{from{opacity:0;max-height:0}to{opacity:1;max-height:2000px}}
-        @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+        @media (max-width:420px){ .mr-dev{display:none} }
+        @media (max-width:400px){ .mr-addlabel{display:none} }
       `}</style>
-      <div style={{ background:isDark?"rgba(4,7,14,0.98)":"rgba(240,244,248,0.98)", borderBottom:`1px solid ${C.border}`, padding:"12px 16px", display:"flex", alignItems:"center", justifyContent:"space-between", position:"sticky", top:0, zIndex:10 }}>
+      <div style={{ background:isDark?"rgba(4,7,14,0.98)":"rgba(255,255,248,0.98)", borderBottom:`1px solid ${C.border}`, padding:"10px 14px", display:"flex", alignItems:"center", justifyContent:"space-between", position:"sticky", top:0, zIndex:10, gap:8 }}>
         <div style={{ display:"flex", alignItems:"center", gap:8, minWidth:0, overflow:"hidden" }}>
-          {/* Perfectly symmetric 3-blade vintage propeller */}
-<svg width="30" height="30" viewBox="0 0 44 44" style={{ flexShrink:0 }}>
-            {/* Outer badge ring */}
-            <circle cx="22" cy="22" r="21" fill="none" stroke={C.accent} strokeWidth="1.5" opacity="0.4"/>
-            <circle cx="22" cy="22" r="18" fill="none" stroke={C.accent} strokeWidth="0.5" opacity="0.2"/>
-            {/* Blade 1 — pointing up-right at 30deg */}
-            <ellipse cx="22" cy="22" rx="14" ry="5" fill={C.accent} transform="rotate(30 22 22)" style={{transformOrigin:"22px 22px"}}/>
-            {/* Blade 2 — pointing up-left at 150deg */}
-            <ellipse cx="22" cy="22" rx="14" ry="5" fill={C.accent} transform="rotate(150 22 22)" style={{transformOrigin:"22px 22px"}}/>
-            {/* Blade 3 — pointing down at 270deg */}
-            <ellipse cx="22" cy="22" rx="14" ry="5" fill={C.accent} transform="rotate(270 22 22)" style={{transformOrigin:"22px 22px"}}/>
-            {/* Engine hub */}
-            <circle cx="22" cy="22" r="7" fill={C.bg}/>
-            <circle cx="22" cy="22" r="5.5" fill={C.bg} stroke={C.accent} strokeWidth="1.8"/>
-            <circle cx="22" cy="22" r="3" fill={C.accent}/>
-            <circle cx="22" cy="22" r="1.2" fill={C.bg}/>
-          </svg>
+          <MyRunwayBadge variant="icon" size={34} color={C.accent}/>
           <span style={{ fontFamily:C.display, fontSize:17, color:C.accent, letterSpacing:2, fontStyle:"italic", whiteSpace:"nowrap" }}>My Runway</span>
-          {DEV_MODE&&<div style={{ background:"rgba(255,200,0,0.15)", border:"1px solid rgba(255,200,0,0.4)", borderRadius:5, padding:"1px 5px", fontSize:8, fontWeight:800, color:C.yellow, fontFamily:C.mono, letterSpacing:1, flexShrink:0 }}>DEV</div>}
+          {DEV_MODE&&<div className="mr-dev" style={{ background:"rgba(255,200,0,0.15)", border:"1px solid rgba(255,200,0,0.4)", borderRadius:5, padding:"1px 5px", fontSize:8, fontWeight:800, color:C.yellow, fontFamily:C.mono, letterSpacing:1, flexShrink:0 }}>DEV</div>}
         </div>
-        <div style={{ display:"flex", gap:5, alignItems:"center" }}>
-          {/* Settings gear */}
-          <div onClick={()=>setShowSettings(true)} title="Settings" style={{ background:"rgba(255,255,255,0.05)", border:`1px solid ${C.border}`, borderRadius:8, padding:"7px", cursor:"pointer", display:"flex" }}>
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 10a2 2 0 100-4 2 2 0 000 4z" stroke={C.soft} strokeWidth="1.2"/><path d="M8 1v1.5M8 13.5V15M1 8h1.5M13.5 8H15M3.05 3.05l1.06 1.06M11.89 11.89l1.06 1.06M3.05 12.95l1.06-1.06M11.89 4.11l1.06-1.06" stroke={C.soft} strokeWidth="1.2" strokeLinecap="round"/></svg>
+        <div style={{ display:"flex", gap:5, alignItems:"center", flexShrink:0 }}>
+          {accountType==="corporate"&&<div onClick={()=>setOverlay("corp")} title="Corporate" style={{ ...iconBtn, background:"rgba(167,139,250,0.1)", border:"1px solid rgba(167,139,250,0.3)" }}><StatIcon id="building" color={C.purple} size={16}/></div>}
+          <div data-testid="btn-share" onClick={()=>setOverlay("share")} title="Share" style={{ ...iconBtn, background:"rgba(0,200,240,0.07)", border:"1px solid rgba(0,200,240,0.2)" }}><StatIcon id="share" color={C.accent} size={16}/></div>
+          <div data-testid="btn-bell" onClick={()=>setOverlay("cancellations")} title="Cancellation alerts" style={{ ...iconBtn, background:hasCancellation?"rgba(255,58,84,0.08)":iconBtn.background, border:`1px solid ${hasCancellation?"rgba(255,58,84,0.25)":C.border}` }}>
+            <StatIcon id="bell" color={hasCancellation?C.red:C.soft} size={16}/>
+            {hasCancellation&&<div style={{ position:"absolute", top:-2, right:-2, width:7, height:7, borderRadius:4, background:C.red, border:"1.5px solid #04070e" }}/>}
           </div>
-          {/* Add flight */}
-          <div onClick={()=>setShowAdd(true)} style={{ background:`linear-gradient(135deg,${C.accent},#007aaa)`, borderRadius:8, padding:"7px 11px", cursor:"pointer", display:"flex", alignItems:"center", gap:5 }}>
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><line x1="6" y1="1" x2="6" y2="11" stroke="#000" strokeWidth="1.8" strokeLinecap="round"/><line x1="1" y1="6" x2="11" y2="6" stroke="#000" strokeWidth="1.8" strokeLinecap="round"/></svg>
-            <span style={{ fontSize:11, color:"#000", fontWeight:800, fontFamily:C.mono, letterSpacing:0.5 }}>FLIGHT</span>
-          </div>
-          {/* Corporate */}
-          {accountType==="corporate"&&(
-            <div onClick={()=>setShowCorp(true)} title="Corporate" style={{ background:"rgba(167,139,250,0.1)", border:"1px solid rgba(167,139,250,0.3)", borderRadius:8, padding:"7px", cursor:"pointer", display:"flex" }}>
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="1" y="6" width="14" height="9" rx="1" stroke={C.purple} strokeWidth="1.2"/><path d="M5 6V4a3 3 0 016 0v2" stroke={C.purple} strokeWidth="1.2"/><line x1="8" y1="9" x2="8" y2="12" stroke={C.purple} strokeWidth="1.2" strokeLinecap="round"/><line x1="5.5" y1="10.5" x2="10.5" y2="10.5" stroke={C.purple} strokeWidth="1.2" strokeLinecap="round"/></svg>
-            </div>
-          )}
-          {/* Share / chain link */}
-          <div onClick={()=>setShowShare(true)} title="Share trip" style={{ background:`rgba(0,200,240,0.07)`, border:`1px solid rgba(0,200,240,0.2)`, borderRadius:8, padding:"7px", cursor:"pointer", display:"flex" }}>
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="13" cy="3" r="2" stroke={C.accent} strokeWidth="1.2"/><circle cx="3" cy="8" r="2" stroke={C.accent} strokeWidth="1.2"/><circle cx="13" cy="13" r="2" stroke={C.accent} strokeWidth="1.2"/><line x1="5" y1="7" x2="11" y2="4" stroke={C.accent} strokeWidth="1.2"/><line x1="5" y1="9" x2="11" y2="12" stroke={C.accent} strokeWidth="1.2"/></svg>
-          </div>
-          {/* Weather / cloud-sun */}
-          <div onClick={()=>setShowWeather(true)} title="Weather" style={{ background:"rgba(255,255,255,0.05)", border:`1px solid ${C.border}`, borderRadius:8, padding:"7px", cursor:"pointer", display:"flex" }}>
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="10" cy="5" r="3" stroke={C.yellow} strokeWidth="1.2"/><path d="M4 11a3 3 0 015.8-1A2.5 2.5 0 1113.5 11H4z" stroke={C.soft} strokeWidth="1.2" fill="none"/><line x1="10" y1="1" x2="10" y2="0" stroke={C.yellow} strokeWidth="1.2" strokeLinecap="round"/><line x1="13.5" y1="2.5" x2="14" y2="2" stroke={C.yellow} strokeWidth="1.2" strokeLinecap="round"/><line x1="15" y1="5" x2="16" y2="5" stroke={C.yellow} strokeWidth="1.2" strokeLinecap="round"/></svg>
-          </div>
-          {/* Airport radar */}
-          <div onClick={()=>setShowAirportIntel(true)} title="Airport Conditions" style={{ background:"rgba(255,255,255,0.05)", border:`1px solid ${C.border}`, borderRadius:8, padding:"7px", cursor:"pointer", display:"flex" }}>
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <circle cx="8" cy="8" r="7" stroke={C.soft} strokeWidth="1.1" opacity="0.4"/>
-              <circle cx="8" cy="8" r="4.5" stroke={C.soft} strokeWidth="1" opacity="0.4"/>
-              <circle cx="8" cy="8" r="2" stroke={C.soft} strokeWidth="1" opacity="0.4"/>
-              <circle cx="8" cy="8" r="1" fill={C.accent}/>
-              <line x1="8" y1="8" x2="12.5" y2="3.5" stroke={C.accent} strokeWidth="1.2" strokeLinecap="round"/>
-            </svg>
-          </div>
-          {/* Seat */}
-          <div onClick={()=>setShowSeatTracker(true)} title="Seat Tracker" style={{ background:"rgba(255,255,255,0.05)", border:`1px solid ${C.border}`, borderRadius:8, padding:"7px", cursor:"pointer", display:"flex" }}>
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 3h8v6H4z" rx="1" stroke={C.soft} strokeWidth="1.2" fill="none"/><path d="M3 9h10v2H3z" rx="1" stroke={C.soft} strokeWidth="1.2" fill="none"/><line x1="5" y1="11" x2="5" y2="14" stroke={C.soft} strokeWidth="1.2" strokeLinecap="round"/><line x1="11" y1="11" x2="11" y2="14" stroke={C.soft} strokeWidth="1.2" strokeLinecap="round"/></svg>
-          </div>
-          {/* Alert bell with red dot */}
-          <div onClick={()=>setShowCancellations(true)} title="Cancellation Tracker" style={{ background:"rgba(255,58,84,0.08)", border:"1px solid rgba(255,58,84,0.25)", borderRadius:8, padding:"7px", cursor:"pointer", display:"flex", position:"relative" }}>
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2a5 5 0 00-5 5v3l-1 1v1h12v-1l-1-1V7a5 5 0 00-5-5z" stroke={C.red} strokeWidth="1.2" fill="none"/><path d="M6.5 13a1.5 1.5 0 003 0" stroke={C.red} strokeWidth="1.2"/></svg>
-            <div style={{ position:"absolute", top:-2, right:-2, width:7, height:7, borderRadius:4, background:C.red, border:"1.5px solid #04070e" }}/>
+          <div data-testid="btn-settings" onClick={()=>setOverlay("settings")} title="Settings" style={iconBtn}><StatIcon id="gear" color={C.soft} size={16}/></div>
+          <div data-testid="btn-add" onClick={()=>setOverlay("add")} style={{ background:`linear-gradient(135deg,${C.accent},#007aaa)`, borderRadius:8, padding:"7px 10px", cursor:"pointer", display:"flex", alignItems:"center", gap:4 }}>
+            <span style={{ fontSize:13, color:"#000", fontWeight:900, lineHeight:1 }}>+</span>
+            <span className="mr-addlabel" style={{ fontSize:11, color:"#000", fontWeight:800, fontFamily:C.mono, letterSpacing:0.5 }}>FLIGHT</span>
           </div>
         </div>
       </div>
-      {/* Corporate account banner — only for corporate users */}
       {accountType==="corporate"&&(
         <div style={{ background:"linear-gradient(135deg,rgba(167,139,250,0.12),rgba(124,58,237,0.06))", borderBottom:"1px solid rgba(167,139,250,0.25)", padding:"10px 16px", display:"flex", alignItems:"center", gap:10 }}>
-          <span style={{ fontSize:16 }}>🏢</span>
-          <div style={{ flex:1 }}>
-            <span style={{ fontSize:12, fontWeight:800, color:C.purple }}>Acme Corp</span>
-            <span style={{ fontSize:12, color:C.muted }}> · Corporate Account · 6 employees traveling</span>
-          </div>
-          <div onClick={()=>setShowCorp(true)} style={{ fontSize:11, color:C.purple, fontWeight:700, fontFamily:C.mono, cursor:"pointer" }}>Dashboard →</div>
+          <StatIcon id="building" color={C.purple} size={16}/>
+          <div style={{ flex:1 }}><span style={{ fontSize:12, fontWeight:800, color:C.purple }}>Acme Corp</span><span style={{ fontSize:12, color:C.muted }}> · Corporate (sample team)</span></div>
+          <div onClick={()=>setOverlay("corp")} style={{ fontSize:11, color:C.purple, fontWeight:700, fontFamily:C.mono, cursor:"pointer" }}>Dashboard →</div>
         </div>
       )}
+      <DemoClockChip clock={clock} now={now}/>
       <div style={{ padding:"16px 16px 0" }}>
-        <div style={{ fontFamily:C.display, fontSize:24, fontWeight:400, fontStyle:"italic", color:C.text, marginBottom:3, letterSpacing:0.5 }}>
-          {tab==="flights"?(accountType==="corporate"?"Team Flights":"My Flights"):tab==="wallet"?"Boarding Passes":tab==="lounges"?"Airport Lounges":"My Passport"}
-        </div>
-        <div style={{ fontSize:12, color:C.soft, fontFamily:C.mono, letterSpacing:2, textTransform:"uppercase" }}>
-          {tab==="flights"?"Israel family trip · Jun 14 – Jul 2, 2026":tab==="wallet"?"Hold your passes — works offline":tab==="lounges"?"Find lounges & access rules":"Your lifetime flying history"}
-        </div>
+        <div style={{ fontFamily:C.display, fontSize:24, fontWeight:400, fontStyle:"italic", color:C.text, marginBottom:3, letterSpacing:0.5 }}>{titles[tab][0]}</div>
+        <div style={{ fontSize:12, color:C.soft, fontFamily:C.mono, letterSpacing:2, textTransform:"uppercase" }}>{titles[tab][1]}</div>
       </div>
       <div style={{ flex:1 }}>
-        {tab==="flights"&&<FlightsScreen onTap={f=>alert(`${f.iata}\n${f.dep} → ${f.arr}\nStatus: ${f.status}\nGate: ${f.gate} · Terminal: ${f.terminal}\nConf#: ${f.conf}\n${f.date}`)} onAdd={()=>setShowAdd(true)} leaveState={leaveState} setLeaveState={setLeaveState} navIdx={navIdx} setNavIdx={setNavIdx} homeAddress={homeAddress}/>}
+        {tab==="flights"&&<FlightsScreen flights={flights} getLive={getLive} getMeta={getMeta} now={now} navIdx={navIdx} homeAddress={homeAddress} stayAddress={stayAddress} prefs={prefs} withKids={withKids}
+          onTap={f=>setDetail(f)} onAdd={()=>setOverlay("add")} onEditPrefs={()=>setOverlay("settings")} onCalendar={exportTrip} tools={tools}
+          liveStrip={<LiveStatusStrip liveState={state} scenario={scenario} realNow={realNow} hasCancellation={hasCancellation}/>}/>}
         {tab==="wallet"&&<WalletScreen/>}
         {tab==="lounges"&&<LoungeScreen/>}
         {tab==="passport"&&<PassportScreen/>}
-
       </div>
-      <BottomNav active={tab} onNav={t=>setTab(t)}/>
-      {showAdd&&<AddModal onClose={()=>setShowAdd(false)}/>}
-      {showCancellations&&<CancellationScreen onBack={()=>setShowCancellations(false)}/>}
-      {showCancelAlert&&<CancellationAlert flight={cancelledFlight} onDismiss={()=>setShowCancelAlert(false)} onAction={()=>{ setShowCancelAlert(false); setShowAlternates(true); }}/>}
-      {showShare&&<ShareModal onClose={()=>setShowShare(false)}/>}
-      {showSettings&&<SettingsModal onClose={()=>setShowSettings(false)} isDark={isDark} setIsDark={setIsDark} homeAddress={homeAddress} setHomeAddress={setHomeAddress} accountType={accountType} setAccountType={setAccountType} navIdx={navIdx} setNavIdx={setNavIdx}/>}
-      {showCorp&&<CorporateDashboard onClose={()=>setShowCorp(false)}/>}
-      {showOnboarding&&<Onboarding onDone={()=>setShowOnboarding(false)}/>}
-      {showAlternates&&<AlternateFlightsScreen flight={FLIGHTS[0]} onBack={()=>setShowAlternates(false)}/>}
-      {showSeatTracker&&<SeatTrackerScreen onBack={()=>setShowSeatTracker(false)}/>}
-      {showAirportIntel&&<AirportIntelligenceScreen onBack={()=>setShowAirportIntel(false)}/>}
-      {showWeather&&(
-        <div style={{ position:"fixed", inset:0, background:C.bg, zIndex:50, overflowY:"auto" }}>
-          <div style={{ background:"rgba(4,7,14,0.98)", borderBottom:`1px solid ${C.border}`, padding:"14px 16px", display:"flex", alignItems:"center", gap:10, position:"sticky", top:0 }}>
-            <div onClick={()=>setShowWeather(false)} style={{ width:34, height:34, borderRadius:17, background:C.surface, border:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", fontSize:18, color:C.accent }}>←</div>
-            <div style={{ fontSize:16, fontWeight:800, color:C.text }}>Airport Weather</div>
-          </div>
-          <WeatherScreen/>
-        </div>
-      )}
-      {showFamily&&(
-        <div style={{ position:"fixed", inset:0, background:C.bg, zIndex:50, overflowY:"auto" }}>
-          <div style={{ background:"rgba(4,7,14,0.98)", borderBottom:`1px solid ${C.border}`, padding:"14px 16px", display:"flex", alignItems:"center", gap:10, position:"sticky", top:0 }}>
-            <div onClick={()=>setShowFamily(false)} style={{ width:34, height:34, borderRadius:17, background:C.surface, border:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", fontSize:18, color:C.accent }}>←</div>
-            <div style={{ fontSize:16, fontWeight:800, color:C.text }}>Family Tracker</div>
-          </div>
-          <FamilyScreen/>
-        </div>
-      )}
+      <BottomNav active={tab} onNav={t=>{ setTab(t); window.scrollTo(0,0); }}/>
+      {detail&&<FlightDetailSheet f={detail} live={getLive(detail.id)} liveMeta={getMeta(detail.id)} now={now} onClose={()=>setDetail(null)} onAlternates={()=>{ setAlternatesFor(detail); setDetail(null); setOverlay("alternates"); }}/>}
+      {overlay==="add"&&<AddModal onClose={close} onAdd={f=>setUserFlights(x=>[...x, f])}/>}
+      {overlay==="share"&&<ShareModal onClose={close} flight={nextFlight} live={nextFlight?getLive(nextFlight.id):null} now={now}/>}
+      {overlay==="settings"&&<SettingsModal onClose={close} isDark={isDark} setIsDark={setIsDark} homeAddress={homeAddress} setHomeAddress={setHomeAddress} stayAddress={stayAddress} setStayAddress={setStayAddress} prefs={prefs} setPrefs={setPrefs} withKids={withKids} setWithKids={setWithKids} accountType={accountType} setAccountType={setAccountType} navIdx={navIdx} setNavIdx={setNavIdx} demoClock={demoClock} setDemoClock={setDemoClock} scenario={savedScenario} setScenario={s=>{ setScenario(s); setCancelDismissed(false); }} onPlans={()=>setOverlay("plans")}/>}
+      {overlay==="corp"&&<CorporateDashboard onClose={close} corpRole="admin"/>}
+      {overlay==="plans"&&<OverlayPage testid="plans" title="Plans & pricing" onBack={close}><PlansScreen/></OverlayPage>}
+      {overlay==="cancellations"&&<CancellationScreen onBack={close} liveOn={liveOn}/>}
+      {overlay==="alternates"&&<AlternateFlightsScreen onBack={close} flight={alternatesFor||cancelled}/>}
+      {overlay==="seats"&&<SeatTrackerScreen onBack={close}/>}
+      {overlay==="intel"&&<AirportIntelligenceScreen onBack={close}/>}
+      {overlay==="weather"&&<OverlayPage testid="weather" title="Airport weather" sub="Live from Open-Meteo" onBack={close}><WeatherScreen/></OverlayPage>}
+      {overlay==="family"&&<OverlayPage testid="family" title="Family tracker" onBack={close}><FamilyScreen/></OverlayPage>}
+      {hasCancellation&&!cancelDismissed&&!overlay&&<CancellationAlert key={cancelled.id} flight={cancelled} simulated={scenario!=="off"} onDismiss={()=>setCancelDismissed(true)} onShare={()=>{ setCancelDismissed(true); setOverlay("share"); }} onAction={()=>{ setCancelDismissed(true); setAlternatesFor(cancelled); setOverlay("alternates"); }}/>}
+      {showOnboarding&&<Onboarding onDone={(pickedNav)=>{ if(typeof pickedNav==="number") setNavIdx(pickedNav); setOnboarded(true); }}/>}
+      <Toasts/>
     </div>
   );
 }
