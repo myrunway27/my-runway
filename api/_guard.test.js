@@ -36,7 +36,12 @@ describe("clientIp / originAllowed", () => {
     const ok = o => originAllowed({ headers: { origin: o } });
     expect(ok("https://myrunwayapp.co")).toBe(true);
     expect(ok("https://www.myrunwayapp.co")).toBe(true);
-    expect(ok("https://my-runway-git-x.vercel.app")).toBe(true);
+    expect(ok("https://my-runway-runway.vercel.app")).toBe(true);
+    expect(ok("https://my-runway-runway-dhsf15pq8-myrunway27-2445s-projects.vercel.app")).toBe(true);
+    expect(ok("https://my-runway-runway-git-launch-prep-myrunway27-2445s-projects.vercel.app")).toBe(true);
+    expect(ok("https://my-runway-git-x.vercel.app")).toBe(false);
+    expect(ok("https://evil.vercel.app")).toBe(false);
+    expect(ok("https://my-runway-runway-x-otherteam-projects.vercel.app")).toBe(false);
     expect(ok("http://localhost:5173")).toBe(true);
     expect(ok("https://evil.example")).toBe(false);
     expect(ok("https://myrunwayapp.co.evil.example")).toBe(false);

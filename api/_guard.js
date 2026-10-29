@@ -42,7 +42,8 @@ export function clientIp(req) {
 }
 
 // Hosts allowed to call the API from a browser.
-export const ALLOWED_HOST_RE = /^(localhost|127\.0\.0\.1|\[::1\]|(www\.)?myrunwayapp\.co|[a-z0-9-]+\.vercel\.app)$/i;
+export const ALLOWED_HOST_RE = /^(localhost|127\.0\.0\.1|\[::1\]|(www\.)?myrunwayapp\.co|my-runway-runway\.vercel\.app|my-runway-runway-[a-z0-9-]+-myrunway27-2445s-projects\.vercel\.app)$/i;
+// Only this Vercel project: production, per-deploy previews and git-branch previews.
 
 function hostOf(u) {
   try { return new URL(u).hostname; } catch { return null; }
