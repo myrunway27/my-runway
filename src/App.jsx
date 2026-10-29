@@ -11,7 +11,7 @@ import { fetchAirportWeather, fetchWeatherAt } from "./lib/weather.js";
 import { buildTripIcs, downloadText } from "./lib/ics.js";
 import { lateInbound } from "./lib/lateInbound.js";
 import { eu261Estimate } from "./lib/eu261.js";
-import { isUsInternationalArrival, CBP_MPC_URL } from "./lib/travelInfo.js";
+import { isUsInternationalArrival, CBP_MPC_URL, TSA_WHAT_CAN_I_BRING_URL, searchItems } from "./lib/travelInfo.js";
 import { buildTripsCsv, buildTripsJson, downloadBlob } from "./lib/exportData.js";
 
 const DARK = {
@@ -620,6 +620,7 @@ function MoreSheet({ onClose, tools, onExport, onOpen }) {
     <Sheet onClose={onClose} testid="more-sheet" label="More">
       <SheetTitle id="more-title" title="More" sub="Tools and trip utilities" onClose={onClose}/>
       {tools.map(([id,icon,text,fn])=><MoreRow key={id} testid={`tool-${id}`} icon={icon} title={text} onClick={()=>{ onClose(); fn(); }}/>)}
+      <MoreRow testid="more-bring" icon="bag" title="Can I bring this?" sub="Carry-on and checked bag rules" onClick={()=>onOpen("bring")}/>
       <div style={{ fontSize:12, fontWeight:600, color:C.muted, letterSpacing:0.4, margin:"22px 4px 6px" }}>YOUR DATA</div>
       <div style={{ display:"flex", gap:10 }}>
         <button type="button" className="mr-btn" data-testid="export-json" onClick={()=>onExport("json")} style={pillBtn()}>Export JSON</button>
@@ -657,6 +658,34 @@ function CustomsSheet({ f, onClose }) {
       <ol style={{ margin:"0 0 16px", padding:"0 0 0 20px", color:C.text, fontSize:15, lineHeight:1.6 }}>{steps.map(x=><li key={x} style={{ marginBottom:6 }}>{x}</li>)}</ol>
       <a className="mr-btn" href={CBP_MPC_URL} target="_blank" rel="noopener noreferrer" style={{ ...pillBtn(true), display:"flex", alignItems:"center", justifyContent:"center", textDecoration:"none" }}>Open CBP Mobile Passport Control ↗</a>
       <div style={{ fontSize:12, color:C.muted, marginTop:10, lineHeight:1.4 }}>Official U.S. Customs and Border Protection page. Eligibility and participating airports are set by CBP.</div>
+    </Sheet>
+  );
+}
+
+const RULE = { yes:["Yes","green"], no:["No","red"], limits:["Limits","yellow"] };
+function RuleTag({ label, v }) {
+  const [txt, key] = RULE[v] || ["?","muted"];
+  return <span style={{ display:"inline-flex", alignItems:"center", gap:5, fontSize:12, color:C.soft }}>{label}<b style={{ color:C[key], fontWeight:700 }}>{txt}</b></span>;
+}
+function BringSheet({ onClose }) {
+  const [q, setQ] = useState("");
+  const items = searchItems(q);
+  return (
+    <Sheet onClose={onClose} testid="sheet-bring" label="Can I bring this?">
+      <SheetTitle title="Can I bring this?" sub="General TSA guidance for US airports. Airlines and other countries can be stricter." onClose={onClose}/>
+      <input data-testid="bring-search" type="search" aria-label="Search items" placeholder="Search: power bank, knife, formula…" value={q} onChange={e=>setQ(e.target.value)} style={{ ...inputStyle(), minHeight:44, borderRadius:12, marginBottom:8 }}/>
+      <div role="list" aria-live="polite">
+        {items.map(x=>(
+          <div role="listitem" key={x.item} style={{ padding:"12px 2px", borderTop:`1px solid ${C.border}` }}>
+            <div style={{ fontSize:15, fontWeight:600, color:C.text, marginBottom:4 }}>{x.item}</div>
+            <div style={{ display:"flex", gap:16 }}><RuleTag label="Carry-on" v={x.carryOn}/><RuleTag label="Checked" v={x.checked}/></div>
+            {x.note&&<div style={{ fontSize:12, color:C.soft, marginTop:4, lineHeight:1.4 }}>{x.note}</div>}
+          </div>
+        ))}
+        {!items.length&&<div style={{ fontSize:14, color:C.soft, padding:"14px 2px" }}>Not in our quick list. Check the full TSA list below.</div>}
+      </div>
+      <a className="mr-btn" href={TSA_WHAT_CAN_I_BRING_URL} target="_blank" rel="noopener noreferrer" style={{ ...pillBtn(), display:"flex", alignItems:"center", justifyContent:"center", textDecoration:"none", marginTop:12 }}>Full TSA “What Can I Bring?” list ↗</a>
+      <div style={{ fontSize:12, color:C.muted, marginTop:8, lineHeight:1.4 }}>General guidance only. The TSA officer makes the final call at the checkpoint.</div>
     </Sheet>
   );
 }
@@ -2383,6 +2412,7 @@ export default function MyRunway() {
       {overlay==="settings"&&<SettingsModal onClose={close} isDark={isDark} setIsDark={setIsDark} homeAddress={homeAddress} setHomeAddress={setHomeAddress} stayAddress={stayAddress} setStayAddress={setStayAddress} prefs={prefs} setPrefs={setPrefs} withKids={withKids} setWithKids={setWithKids} accountType={accountType} setAccountType={setAccountType} navIdx={navIdx} setNavIdx={setNavIdx} demoClock={demoClock} setDemoClock={setDemoClock} scenario={savedScenario} setScenario={s=>{ setScenario(s); setCancelDismissed(false); }} onPlans={()=>setOverlay("plans")}/>}
       {info?.kind==="comp"&&<CompensationSheet f={info.f} data={info.data} onClose={()=>setInfo(null)}/>}
       {info?.kind==="customs"&&<CustomsSheet f={info.f} onClose={()=>setInfo(null)}/>}
+      {overlay==="bring"&&<BringSheet onClose={close}/>}
       {overlay==="more"&&<MoreSheet onClose={close} tools={tools.filter(t=>t[0]!=="weather"&&t[0]!=="intel")} onExport={exportData} onOpen={setOverlay}/>}
       {overlay==="corp"&&<CorporateDashboard onClose={close} corpRole="admin"/>}
       {overlay==="plans"&&<OverlayPage testid="plans" title="Plans & pricing" onBack={close}><PlansScreen/></OverlayPage>}
