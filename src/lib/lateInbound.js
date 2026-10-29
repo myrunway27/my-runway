@@ -10,7 +10,8 @@ export function minTurnMins(aircraft) {
 }
 
 /**
- * @param {{ inbound?: object|null, ourDep: Date, aircraft?: string, turnMins?: number }} p
+ * @param {{ inbound?: object|null, ourDep: Date, aircraft?: string, turnMins?: number, knownDelayMins?: number }} p
+ *   ourDep is the BOOKED departure; knownDelayMins is any delay the airline already shows.
  * @returns {{ level:"none"|"ok"|"tight"|"late"|"watch", slackMins:number|null, eta:Date|null, turnMins:number, message:string|null }}
  *   none  - no inbound data
  *   ok    - lands with at least the turn time to spare
@@ -18,7 +19,7 @@ export function minTurnMins(aircraft) {
  *   late  - lands after (our departure - turn time): our flight will likely leave late
  *   watch - no ETA, but the inbound reports 30+ min of delay
  */
-export function lateInbound({ inbound, ourDep, aircraft, turnMins }) {
+export function lateInbound({ inbound, ourDep, aircraft, turnMins, knownDelayMins = 0 }) {
   const turn = Number.isFinite(turnMins) ? turnMins : minTurnMins(aircraft);
   const base = { level: "none", slackMins: null, eta: null, turnMins: turn, message: null };
   if (!inbound || !(ourDep instanceof Date) || Number.isNaN(ourDep.getTime())) return base;
@@ -33,7 +34,10 @@ export function lateInbound({ inbound, ourDep, aircraft, turnMins }) {
   }
   const slack = Math.round((ourDep.getTime() - eta.getTime()) / 60000) - turn;
   const r = { ...base, eta, slackMins: slack };
-  if (slack < 0) return { ...r, level: "late", message: `${who} lands too late for a normal ${turn}-min turn. Expect about ${-slack} min of delay.` };
+  if (slack < 0) {
+    const known = knownDelayMins >= -slack ? ` Your flight already shows a ${knownDelayMins}-min delay.` : "";
+    return { ...r, level: "late", message: `${who} lands too late for a normal ${turn}-min turn. Expect about ${-slack} min of delay.${known}` };
+  }
   if (slack < 15) return { ...r, level: "tight", message: `${who} lands with only ${slack} min to spare over a ${turn}-min turn.` };
   return { ...r, level: "ok" };
 }

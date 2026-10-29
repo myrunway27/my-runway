@@ -17,7 +17,8 @@ for (const [label, viewport, dpr] of sizes) {
   const log = (kind, text) => { if (!/Download the React DevTools|fonts\.googleapis|airhex\.com/i.test(text)) errors.push(`[${label}] ${kind}: ${text}`); };
   page.on("console", m => { if (m.type() === "error" || m.type() === "warning") log(m.type(), `${m.text()} @ ${m.location()?.url || ""}`); });
   page.on("pageerror", e => log("pageerror", e.message));
-  page.on("requestfailed", r => { if (!/airhex|fonts\.g/.test(r.url())) log("requestfailed", `${r.url()} ${r.failure()?.errorText}`); });
+  // an in-flight /api/faa poll is aborted when the test navigates away; that is not an app error
+  page.on("requestfailed", r => { if (!/airhex|fonts\.g/.test(r.url()) && !(/\/api\/faa/.test(r.url()) && /ERR_ABORTED/.test(r.failure()?.errorText || ""))) log("requestfailed", `${r.url()} ${r.failure()?.errorText}`); });
 
   // 1) Onboarding (fresh storage)
   await page.goto(BASE, { waitUntil: "networkidle" });

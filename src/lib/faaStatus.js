@@ -65,8 +65,13 @@ export function describe(ev) {
   return "Status notice";
 }
 
-/** Client: fetch via our proxy. Never throws. */
-export async function fetchFaaStatus({ timeoutMs = 6000 } = {}) {
+/** Client: fetch via our proxy. Never throws. Concurrent callers share one request. */
+let inflight = null;
+export function fetchFaaStatus(opts) {
+  if (!inflight) inflight = loadFaa(opts).finally(() => { inflight = null; });
+  return inflight;
+}
+async function loadFaa({ timeoutMs = 6000 } = {}) {
   const ctl = new AbortController();
   const t = setTimeout(() => ctl.abort(), timeoutMs);
   try {

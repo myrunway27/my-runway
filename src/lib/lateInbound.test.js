@@ -15,6 +15,9 @@ describe("lateInbound", () => {
     const r = lateInbound({ inbound: { ident: "LY 346", origin: "ZRH", estArr: at(-10) }, ourDep: dep, turnMins: 40 });
     expect(r.level).toBe("late"); expect(r.slackMins).toBe(-30); expect(r.message).toMatch(/30 min/);
   });
+  it("mentions a delay the airline already shows", () => {
+    expect(lateInbound({ inbound: { estArr: at(-25) }, ourDep: dep, turnMins: 40, knownDelayMins: 35 }).message).toMatch(/already shows a 35-min delay/);
+  });
   it("late when arrival is after departure", () => expect(lateInbound({ inbound: { estArr: at(20) }, ourDep: dep, aircraft: "737" }).level).toBe("late"));
   it("watch without ETA but big delay; ok if small", () => {
     expect(lateInbound({ inbound: { delayMins: 40 }, ourDep: dep }).level).toBe("watch");
