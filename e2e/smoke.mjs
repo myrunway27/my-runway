@@ -50,6 +50,7 @@ for (const [label, viewport, dpr] of sizes) {
 
   // 4) Tools
   for (const t of ["weather", "intel", "seats", "family", "cancel"]) {
+    if (!(await page.getByTestId(`tool-${t}`).count())) await page.getByTestId("tool-more").click();
     await page.getByTestId(`tool-${t}`).click();
     await page.waitForTimeout(t === "weather" || t === "intel" ? 2000 : 300);
     await shot(page, `${label}-07-tool-${t}`);
@@ -63,6 +64,16 @@ for (const [label, viewport, dpr] of sizes) {
   await page.getByTestId("add-iata").fill("LX 17");
   await shot(page, `${label}-09-add`);
   await page.mouse.click(5, 5);
+
+  // 5b) Data export (More sheet)
+  await page.getByTestId("tool-more").click();
+  await shot(page, `${label}-09b-more`);
+  for (const k of ["json", "csv"]) {
+    const [d] = await Promise.all([page.waitForEvent("download"), page.getByTestId(`export-${k}`).click()]);
+    const txt = await d.path().then(p => import("node:fs").then(fs => fs.readFileSync(p, "utf8")));
+    if (k === "csv" ? !/^id,flight,/.test(txt) : !JSON.parse(txt).flights?.length) errors.push(`[${label}] ${k} export malformed`);
+  }
+  await page.keyboard.press("Escape");
 
   // 6) Calendar export
   const [dl] = await Promise.all([page.waitForEvent("download"), page.getByTestId("ics-trip").click()]);

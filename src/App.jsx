@@ -10,12 +10,13 @@ import { fetchLive, mockLive, verifyFlight, MOCK_SCENARIOS } from "./lib/liveDat
 import { fetchAirportWeather, fetchWeatherAt } from "./lib/weather.js";
 import { buildTripIcs, downloadText } from "./lib/ics.js";
 import { lateInbound } from "./lib/lateInbound.js";
+import { buildTripsCsv, buildTripsJson, downloadBlob } from "./lib/exportData.js";
 
 const DARK = {
   bg:"#04070e", surface:"#090f1c", card:"#0d1525", border:"#13203a",
   accent:"#00c8f0", green:"#00e87a", yellow:"#ffc800",
   red:"#ff3a54", purple:"#a78bfa", orange:"#ff5c2b",
-  text:"#d4ecff", muted:"#4e7090", soft:"#7a9ab8",
+  text:"#d4ecff", muted:"#4e7090", soft:"#7a9ab8", chip:"rgba(255,255,255,0.06)",
   mono:"'Courier New',monospace", sans:"Georgia,serif",
   display:"'Playfair Display','Times New Roman',serif",
   deco:"'Courier New',monospace",
@@ -24,7 +25,7 @@ const LIGHT = {
   bg:"#f5f0e8", surface:"#fffff8", card:"#fffef5", border:"#d4c9a8",
   accent:"#8b5e1a", green:"#4a7c3f", yellow:"#b88a00",
   red:"#8b2020", purple:"#5a3a6b", orange:"#c4511a",
-  text:"#1a1208", muted:"#7a6a4a", soft:"#5a4a2a",
+  text:"#1a1208", muted:"#7a6a4a", soft:"#5a4a2a", chip:"rgba(0,0,0,0.05)",
   mono:"'Courier New',monospace", sans:"Georgia,serif",
   display:"'Playfair Display','Times New Roman',serif",
   deco:"'Courier New',monospace",
@@ -549,10 +550,10 @@ function Toasts() {
   );
 }
 
-function Sheet({ onClose, children, testid }) {
+function Sheet({ onClose, children, testid, label }) {
   return (
-    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", zIndex:60, display:"flex", flexDirection:"column", justifyContent:"flex-end" }} onClick={onClose}>
-      <div data-testid={testid} onClick={e=>e.stopPropagation()} style={{ background:C.surface, borderTopLeftRadius:24, borderTopRightRadius:24, padding:"20px 20px 44px", border:`1px solid ${C.border}`, maxWidth:480, margin:"0 auto", width:"100%", maxHeight:"88vh", overflowY:"auto" }}>
+    <div className="mr-scrim" style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.5)", zIndex:60, display:"flex", flexDirection:"column", justifyContent:"flex-end" }} onClick={onClose}>
+      <div data-testid={testid} role="dialog" aria-modal="true" aria-label={label} className="mr-sheet mr-glass" onClick={e=>e.stopPropagation()} style={{ background:C.surface, borderTopLeftRadius:24, borderTopRightRadius:24, padding:"20px 20px 44px", border:`1px solid ${C.border}`, maxWidth:480, margin:"0 auto", width:"100%", maxHeight:"88vh", overflowY:"auto" }}>
         <div style={{ width:36, height:4, background:C.border, borderRadius:2, margin:"0 auto 18px" }}/>
         {children}
       </div>
@@ -571,6 +572,43 @@ function OverlayPage({ title, sub, onBack, children, testid }) {
     </div>
   );
 }
+
+
+// ── Secondary features live behind "More" (progressive disclosure) ──
+function SheetTitle({ title, sub, onClose, id }) {
+  return (
+    <div style={{ display:"flex", alignItems:"flex-start", gap:12, marginBottom:16 }}>
+      <div style={{ flex:1 }}><h2 id={id} style={{ margin:0, fontSize:22, fontWeight:700, color:C.text, letterSpacing:-0.3 }}>{title}</h2>{sub&&<div style={{ fontSize:13, color:C.soft, marginTop:4, lineHeight:1.4 }}>{sub}</div>}</div>
+      <button type="button" className="mr-btn" aria-label="Close" onClick={onClose} style={{ width:44, height:44, borderRadius:22, border:"none", background:C.chip, color:C.soft, fontSize:16, cursor:"pointer", flexShrink:0 }}>✕</button>
+    </div>
+  );
+}
+
+function MoreRow({ icon, title, sub, onClick, testid, right }) {
+  return (
+    <button type="button" className="mr-btn mr-row" data-testid={testid} onClick={onClick} style={{ width:"100%", minHeight:56, display:"flex", alignItems:"center", gap:14, background:"transparent", border:"none", borderTop:`1px solid ${C.border}`, padding:"10px 4px", cursor:"pointer", textAlign:"left", color:C.text, font:"inherit" }}>
+      <span style={{ width:32, height:32, borderRadius:9, background:tint(C.accent,0.16), display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><StatIcon id={icon} color={C.accent} size={17}/></span>
+      <span style={{ flex:1, minWidth:0 }}><span style={{ display:"block", fontSize:15, fontWeight:600 }}>{title}</span>{sub&&<span style={{ display:"block", fontSize:12, color:C.soft, marginTop:2 }}>{sub}</span>}</span>
+      {right || <span aria-hidden="true" style={{ color:C.muted, fontSize:18 }}>›</span>}
+    </button>
+  );
+}
+
+function MoreSheet({ onClose, tools, onExport, onOpen }) {
+  return (
+    <Sheet onClose={onClose} testid="more-sheet" label="More">
+      <SheetTitle id="more-title" title="More" sub="Tools and trip utilities" onClose={onClose}/>
+      {tools.map(([id,icon,text,fn])=><MoreRow key={id} testid={`tool-${id}`} icon={icon} title={text} onClick={()=>{ onClose(); fn(); }}/>)}
+      <div style={{ fontSize:12, fontWeight:600, color:C.muted, letterSpacing:0.4, margin:"22px 4px 6px" }}>YOUR DATA</div>
+      <div style={{ display:"flex", gap:10 }}>
+        <button type="button" className="mr-btn" data-testid="export-json" onClick={()=>onExport("json")} style={pillBtn()}>Export JSON</button>
+        <button type="button" className="mr-btn" data-testid="export-csv" onClick={()=>onExport("csv")} style={pillBtn()}>Export CSV</button>
+      </div>
+      <div style={{ fontSize:12, color:C.muted, margin:"8px 4px 0", lineHeight:1.4 }}>Downloads your flights, settings and any live status to this device. Nothing is uploaded.</div>
+    </Sheet>
+  );
+}
+const pillBtn = (primary) => ({ flex:1, minHeight:48, borderRadius:14, border:primary?"none":`1px solid ${C.border}`, background:primary?C.accent:C.chip, color:primary?"#fff":C.text, fontSize:15, fontWeight:600, cursor:"pointer", font:"inherit", fontFamily:C.sans });
 
 const inputStyle = () => ({ width:"100%", background:C.card, border:`1.5px solid ${C.border}`, borderRadius:12, padding:"12px 14px", color:C.text, fontSize:14, outline:"none", boxSizing:"border-box", fontFamily:C.sans });
 const label = t => <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:1.5, marginBottom:6 }}>{t}</div>;
@@ -810,7 +848,7 @@ function ToolChips({ items }) {
 }
 
 // ── Main flights screen ──
-function FlightsScreen({ flights, getLive, getMeta, now, navIdx, homeAddress, stayAddress, prefs, withKids, onTap, onAdd, onEditPrefs, onCalendar, tools, liveStrip }) {
+function FlightsScreen({ flights, getLive, getMeta, now, navIdx, homeAddress, stayAddress, prefs, withKids, onTap, onAdd, onEditPrefs, onCalendar, tools, liveStrip, onMore }) {
   const phases = flights.map(f => ({ f, phase: flightPhase(f, getLive(f.id), now) }));
   const upcoming = phases.filter(p => p.phase !== "completed").map(p => p.f);
   const done = phases.filter(p => p.phase === "completed").map(p => p.f);
@@ -826,7 +864,7 @@ function FlightsScreen({ flights, getLive, getMeta, now, navIdx, homeAddress, st
   return (
     <div style={{ padding:"14px 16px 110px" }}>
       {liveStrip}
-      <ToolChips items={tools}/>
+      <ToolChips items={[...tools.filter(t=>t[0]==="weather"||t[0]==="intel"), ["more","more","More",onMore]]}/>
       <WhatChangedBanner flights={upcoming} getLive={getLive}/>
       {next && <LeaveByCard f={next} live={getLive(next.id)} now={now} navIdx={navIdx} homeAddress={homeAddress} stayAddress={stayAddress} prefs={prefs} onEdit={onEditPrefs} warning={onwardCancelled ? `Your connection ${onwardCancelled.iata} is cancelled. Rebook it before you leave for the airport.` : null}/>}
       <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, margin:"6px 0 10px" }}>{upcoming.length?"UPCOMING":"NO UPCOMING FLIGHTS"}</div>
@@ -1107,6 +1145,7 @@ function StatIcon({ id, color="#00c8f0", size=19 }) {
     map: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z M9 4v14M15 6v14" stroke={color} strokeWidth={sw} strokeLinejoin="round"/></svg>),
     info: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke={color} strokeWidth={sw}/><path d="M12 11v6M12 7.5v.5" stroke={color} strokeWidth={sw} strokeLinecap="round"/></svg>),
     share: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><circle cx="18" cy="5" r="2.5" stroke={color} strokeWidth={sw}/><circle cx="6" cy="12" r="2.5" stroke={color} strokeWidth={sw}/><circle cx="18" cy="19" r="2.5" stroke={color} strokeWidth={sw}/><path d="M8.2 10.8l7.6-4.4M8.2 13.2l7.6 4.4" stroke={color} strokeWidth={sw}/></svg>),
+    more: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><circle cx="5" cy="12" r="1.8" fill={color}/><circle cx="12" cy="12" r="1.8" fill={color}/><circle cx="19" cy="12" r="1.8" fill={color}/></svg>),
     radar: (<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke={color} strokeWidth={sw} opacity="0.5"/><circle cx="12" cy="12" r="5" stroke={color} strokeWidth={sw} opacity="0.5"/><path d="M12 12l6-6" stroke={color} strokeWidth={sw} strokeLinecap="round"/><circle cx="12" cy="12" r="1.3" fill={color}/></svg>),
   };
   return icons[id] || null;
@@ -2223,6 +2262,12 @@ export default function MyRunway() {
     ["family","users","Family",()=>setOverlay("family")],
     ["cancel","bell","Alerts",()=>setOverlay("cancellations")],
   ];
+  function exportData(kind) {
+    const stamp = realNow.toISOString().slice(0,10);
+    if (kind === "csv") downloadBlob(`my-runway-trips-${stamp}.csv`, buildTripsCsv(flights, getLive), "text/csv;charset=utf-8");
+    else downloadBlob(`my-runway-trips-${stamp}.json`, buildTripsJson(flights, { trip: TRIP, getLive, now: realNow, settings: { homeAddress, stayAddress, prefs, withKids, navApp: NAV_APPS[navIdx]?.label } }), "application/json");
+    notify(`Exported ${flights.length} flights as ${kind.toUpperCase()}`);
+  }
   const titles = { flights:[accountType==="corporate"?"Team Flights":"My Flights",`${TRIP.name} · ${TRIP.range}`], wallet:["Boarding Passes","Hold your passes, works offline"], lounges:["Airport Lounges","Find lounges & access rules"], passport:["My Passport","Your lifetime flying history"] };
   const iconBtn = { background:"rgba(255,255,255,0.05)", border:`1px solid ${C.border}`, borderRadius:8, padding:"7px", cursor:"pointer", display:"flex", position:"relative" };
 
@@ -2271,7 +2316,7 @@ export default function MyRunway() {
       </div>
       <div style={{ flex:1 }}>
         {tab==="flights"&&<FlightsScreen flights={flights} getLive={getLive} getMeta={getMeta} now={now} navIdx={navIdx} homeAddress={homeAddress} stayAddress={stayAddress} prefs={prefs} withKids={withKids}
-          onTap={f=>setDetail(f)} onAdd={()=>setOverlay("add")} onEditPrefs={()=>setOverlay("settings")} onCalendar={exportTrip} tools={tools}
+          onTap={f=>setDetail(f)} onAdd={()=>setOverlay("add")} onEditPrefs={()=>setOverlay("settings")} onCalendar={exportTrip} tools={tools} onMore={()=>setOverlay("more")}
           liveStrip={<LiveStatusStrip liveState={state} scenario={scenario} realNow={realNow} hasCancellation={hasCancellation}/>}/>}
         {tab==="wallet"&&<WalletScreen/>}
         {tab==="lounges"&&<LoungeScreen/>}
@@ -2282,6 +2327,7 @@ export default function MyRunway() {
       {overlay==="add"&&<AddModal onClose={close} onAdd={f=>setUserFlights(x=>[...x, f])}/>}
       {overlay==="share"&&<ShareModal onClose={close} flight={nextFlight} live={nextFlight?getLive(nextFlight.id):null} now={now}/>}
       {overlay==="settings"&&<SettingsModal onClose={close} isDark={isDark} setIsDark={setIsDark} homeAddress={homeAddress} setHomeAddress={setHomeAddress} stayAddress={stayAddress} setStayAddress={setStayAddress} prefs={prefs} setPrefs={setPrefs} withKids={withKids} setWithKids={setWithKids} accountType={accountType} setAccountType={setAccountType} navIdx={navIdx} setNavIdx={setNavIdx} demoClock={demoClock} setDemoClock={setDemoClock} scenario={savedScenario} setScenario={s=>{ setScenario(s); setCancelDismissed(false); }} onPlans={()=>setOverlay("plans")}/>}
+      {overlay==="more"&&<MoreSheet onClose={close} tools={tools.filter(t=>t[0]!=="weather"&&t[0]!=="intel")} onExport={exportData} onOpen={setOverlay}/>}
       {overlay==="corp"&&<CorporateDashboard onClose={close} corpRole="admin"/>}
       {overlay==="plans"&&<OverlayPage testid="plans" title="Plans & pricing" onBack={close}><PlansScreen/></OverlayPage>}
       {overlay==="cancellations"&&<CancellationScreen onBack={close} liveOn={liveOn}/>}
