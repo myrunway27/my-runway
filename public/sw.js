@@ -10,7 +10,7 @@
 //
 // Bump VERSION on any change here: the byte change is what makes browsers
 // install the new worker, and activate then drops every older cache.
-const VERSION = "v4";
+const VERSION = "v5";
 const CACHE = `myrunway-shell-${VERSION}`;
 // Only files that exist in this build: addAll fails the whole install on any 404.
 const PRECACHE = ["/", "/index.html", "/manifest.webmanifest", "/myrunway_icon.svg", "/myrunway_badge.svg"];
@@ -29,6 +29,8 @@ self.addEventListener("activate", (e) => {
 self.addEventListener("fetch", (e) => {
   const req = e.request;
   if (req.method !== "GET" || !req.url.startsWith(self.location.origin)) return;
+  // Live data (/api/flight, /api/faa) must never be served from cache: let it hit the network.
+  if (new URL(req.url).pathname.startsWith("/api/")) return;
 
   // The app shell: always try the network so a deploy actually lands, and keep
   // a fresh copy for the offline case.

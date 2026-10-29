@@ -11,6 +11,7 @@ import { fetchAirportWeather, fetchWeatherAt } from "./lib/weather.js";
 import { buildTripIcs, downloadText } from "./lib/ics.js";
 import { lateInbound } from "./lib/lateInbound.js";
 import { eu261Estimate } from "./lib/eu261.js";
+import { fetchFaaStatus, statusFor, describe as describeFaa } from "./lib/faaStatus.js";
 import { isUsInternationalArrival, CBP_MPC_URL, TSA_WHAT_CAN_I_BRING_URL, searchItems } from "./lib/travelInfo.js";
 import { buildTripsCsv, buildTripsJson, downloadBlob } from "./lib/exportData.js";
 
@@ -620,6 +621,7 @@ function MoreSheet({ onClose, tools, onExport, onOpen }) {
     <Sheet onClose={onClose} testid="more-sheet" label="More">
       <SheetTitle id="more-title" title="More" sub="Tools and trip utilities" onClose={onClose}/>
       {tools.map(([id,icon,text,fn])=><MoreRow key={id} testid={`tool-${id}`} icon={icon} title={text} onClick={()=>{ onClose(); fn(); }}/>)}
+      <MoreRow testid="more-faa" icon="radar" title="US airport delays" sub="FAA ground stops, delays and closures" onClick={()=>onOpen("faa")}/>
       <MoreRow testid="more-bring" icon="bag" title="Can I bring this?" sub="Carry-on and checked bag rules" onClick={()=>onOpen("bring")}/>
       <div style={{ fontSize:12, fontWeight:600, color:C.muted, letterSpacing:0.4, margin:"22px 4px 6px" }}>YOUR DATA</div>
       <div style={{ display:"flex", gap:10 }}>
@@ -686,6 +688,55 @@ function BringSheet({ onClose }) {
       </div>
       <a className="mr-btn" href={TSA_WHAT_CAN_I_BRING_URL} target="_blank" rel="noopener noreferrer" style={{ ...pillBtn(), display:"flex", alignItems:"center", justifyContent:"center", textDecoration:"none", marginTop:12 }}>Full TSA “What Can I Bring?” list ↗</a>
       <div style={{ fontSize:12, color:C.muted, marginTop:8, lineHeight:1.4 }}>General guidance only. The TSA officer makes the final call at the checkpoint.</div>
+    </Sheet>
+  );
+}
+
+// FAA NAS status: US airports only. Ground stop / closure = red, delays = yellow.
+const isUsAirport = code => airport(code)?.country === "US";
+function faaChip(faa, f) {
+  if (!faa?.ok) return null;
+  for (const code of [f.dep, f.arr].filter(isUsAirport)) {
+    const ev = statusFor(faa, code);
+    if (!ev.length) continue;
+    const severe = ev.some(e => e.type === "ground_stop" || e.type === "closure");
+    const kind = ev.find(e => e.type === "ground_stop") ? "ground stop" : ev.find(e => e.type === "closure") ? "closure notice" : "delays";
+    return { id:"faa", icon:"alert", tone: severe ? C.red : C.yellow, text:`${code}: ${kind}`, data:{ code } };
+  }
+  return null;
+}
+function AirportStatusSheet({ faa, codes, onClose, onRetry }) {
+  const others = faa?.ok ? Object.keys(faa.airports).filter(c => !codes.includes(c) && statusFor(faa, c).length).sort() : [];
+  const Block = ({ code }) => {
+    const ev = statusFor(faa, code);
+    return (
+      <div style={{ padding:"12px 2px", borderTop:`1px solid ${C.border}` }}>
+        <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+          <span style={{ fontSize:16, fontWeight:700, color:C.text, minWidth:44 }}>{code}</span>
+          <span style={{ fontSize:13, color:ev.length?C.yellow:C.green, fontWeight:600 }}>{ev.length ? `${ev.length} notice${ev.length>1?"s":""}` : "No reported delays"}</span>
+        </div>
+        {ev.map((e,i)=><div key={i} style={{ fontSize:13, color:C.soft, marginTop:4, lineHeight:1.4 }}>{describeFaa(e)}</div>)}
+      </div>
+    );
+  };
+  return (
+    <Sheet onClose={onClose} testid="sheet-faa" label="US airport delay status">
+      <SheetTitle title="US airport status" sub="Delays, ground stops and closures from the FAA NAS status feed." onClose={onClose}/>
+      {!faa && <div style={{ fontSize:14, color:C.soft, padding:"12px 2px" }}>Checking the FAA feed…</div>}
+      {faa && !faa.ok && (
+        <div role="status" style={{ padding:"14px", borderRadius:14, background:C.chip, fontSize:14, color:C.text, lineHeight:1.5 }}>
+          FAA airport status is unavailable right now ({faa.error}). Check <a href="https://nasstatus.faa.gov/" target="_blank" rel="noopener noreferrer" style={{ color:C.accent }}>nasstatus.faa.gov</a> or your airline app.
+          <button type="button" className="mr-btn" onClick={onRetry} style={{ ...pillBtn(), marginTop:12, width:"100%" }}>Try again</button>
+        </div>
+      )}
+      {faa?.ok && <>
+        {codes.length ? codes.map(c=><Block key={c} code={c}/>) : <div style={{ fontSize:14, color:C.soft }}>No US airports on this trip.</div>}
+        {others.length>0 && <>
+          <div style={{ fontSize:12, fontWeight:600, color:C.muted, letterSpacing:0.4, margin:"20px 2px 4px" }}>ELSEWHERE IN THE US</div>
+          {others.map(c=><Block key={c} code={c}/>)}
+        </>}
+        <div style={{ fontSize:12, color:C.muted, marginTop:12 }}>FAA update: {faa.updatedAt || "unknown"}. Closure notices for general aviation only are hidden. Airline-specific delays are not included.</div>
+      </>}
     </Sheet>
   );
 }
@@ -930,7 +981,7 @@ function ToolChips({ items }) {
 }
 
 // ── Main flights screen ──
-function FlightsScreen({ flights, getLive, getMeta, now, navIdx, homeAddress, stayAddress, prefs, withKids, onTap, onAdd, onEditPrefs, onCalendar, tools, liveStrip, onMore, onInfo }) {
+function FlightsScreen({ flights, getLive, getMeta, now, navIdx, homeAddress, stayAddress, prefs, withKids, onTap, onAdd, onEditPrefs, onCalendar, tools, liveStrip, onMore, onInfo, faa }) {
   const phases = flights.map(f => ({ f, phase: flightPhase(f, getLive(f.id), now) }));
   const upcoming = phases.filter(p => p.phase !== "completed").map(p => p.f);
   const done = phases.filter(p => p.phase === "completed").map(p => p.f);
@@ -955,7 +1006,7 @@ function FlightsScreen({ flights, getLive, getMeta, now, navIdx, homeAddress, st
         return (
           <div key={f.id}>
             {inbound && upcoming.includes(inbound) && <ConnectionCard inbound={inbound} outbound={f} liveIn={getLive(inbound.id)} liveOut={getLive(f.id)} withKids={withKids}/>}
-            <FlightCard f={f} live={getLive(f.id)} liveMeta={getMeta(f.id)} now={now} onTap={onTap} onInfo={onInfo}/>
+            <FlightCard f={f} live={getLive(f.id)} liveMeta={getMeta(f.id)} now={now} onTap={onTap} onInfo={onInfo} extraChips={[faaChip(faa, f)].filter(Boolean)}/>
           </div>
         );
       })}
@@ -2271,7 +2322,15 @@ export default function MyRunway() {
   const [tab, setTab] = useState("flights");
   const [overlay, setOverlay] = useState(null); // add | share | settings | corp | plans | cancellations | alternates | seats | intel | weather | family
   const [detail, setDetail] = useState(null);
-  const [info, setInfo] = useState(null); // contextual sheet: { kind, f, data }
+  const [info, setInfo] = useState(null);
+  const [faa, setFaa] = useState(null); // FAA NAS status (US airports), null while loading
+  const [faaTick, setFaaTick] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    fetchFaaStatus().then(r => { if (alive) setFaa(r); });
+    const id = setInterval(() => setFaaTick(x => x + 1), 5 * 60 * 1000);
+    return () => { alive = false; clearInterval(id); };
+  }, [faaTick]); // contextual sheet: { kind, f, data }
   const [isDark, setIsDark] = usePersistentState("dark", true);
   const [navIdx, setNavIdx] = usePersistentState("navIdx", 0);
   const [homeAddress, setHomeAddress] = usePersistentState("home", "Miami, FL (Davie)");
@@ -2399,7 +2458,7 @@ export default function MyRunway() {
       </div>
       <div style={{ flex:1 }}>
         {tab==="flights"&&<FlightsScreen flights={flights} getLive={getLive} getMeta={getMeta} now={now} navIdx={navIdx} homeAddress={homeAddress} stayAddress={stayAddress} prefs={prefs} withKids={withKids}
-          onTap={f=>setDetail(f)} onAdd={()=>setOverlay("add")} onEditPrefs={()=>setOverlay("settings")} onCalendar={exportTrip} tools={tools} onMore={()=>setOverlay("more")} onInfo={setInfo}
+          onTap={f=>setDetail(f)} onAdd={()=>setOverlay("add")} onEditPrefs={()=>setOverlay("settings")} onCalendar={exportTrip} tools={tools} onMore={()=>setOverlay("more")} onInfo={setInfo} faa={faa}
           liveStrip={<LiveStatusStrip liveState={state} scenario={scenario} realNow={realNow} hasCancellation={hasCancellation}/>}/>}
         {tab==="wallet"&&<WalletScreen/>}
         {tab==="lounges"&&<LoungeScreen/>}
@@ -2413,6 +2472,7 @@ export default function MyRunway() {
       {info?.kind==="comp"&&<CompensationSheet f={info.f} data={info.data} onClose={()=>setInfo(null)}/>}
       {info?.kind==="customs"&&<CustomsSheet f={info.f} onClose={()=>setInfo(null)}/>}
       {overlay==="bring"&&<BringSheet onClose={close}/>}
+      {(overlay==="faa"||info?.kind==="faa")&&<AirportStatusSheet faa={faa} codes={[...new Set(flights.filter(f=>flightPhase(f, getLive(f.id), now)!=="completed").flatMap(f=>[f.dep,f.arr]).filter(isUsAirport))]} onClose={()=>{ setInfo(null); if (overlay==="faa") close(); }} onRetry={()=>{ setFaa(null); setFaaTick(x=>x+1); }}/>}
       {overlay==="more"&&<MoreSheet onClose={close} tools={tools.filter(t=>t[0]!=="weather"&&t[0]!=="intel")} onExport={exportData} onOpen={setOverlay}/>}
       {overlay==="corp"&&<CorporateDashboard onClose={close} corpRole="admin"/>}
       {overlay==="plans"&&<OverlayPage testid="plans" title="Plans & pricing" onBack={close}><PlansScreen/></OverlayPage>}
