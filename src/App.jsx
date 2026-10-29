@@ -10,6 +10,7 @@ import { fetchLive, mockLive, verifyFlight, MOCK_SCENARIOS } from "./lib/liveDat
 import { fetchAirportWeather, fetchWeatherAt } from "./lib/weather.js";
 import { buildTripIcs, downloadText } from "./lib/ics.js";
 import { lateInbound } from "./lib/lateInbound.js";
+import { eu261Estimate } from "./lib/eu261.js";
 import { buildTripsCsv, buildTripsJson, downloadBlob } from "./lib/exportData.js";
 
 const DARK = {
@@ -268,7 +269,7 @@ function ConnectionCard({ inbound, outbound, liveIn, liveOut, withKids }) {
   );
 }
 
-function FlightCard({ f, live, liveMeta, now, onTap }) {
+function FlightCard({ f, live, liveMeta, now, onTap, onInfo, extraChips = [] }) {
   const phase = flightPhase(f, live, now);
   const status = displayStatus(f, live, phase);
   const s = sc(status);
@@ -324,6 +325,24 @@ function FlightCard({ f, live, liveMeta, now, onTap }) {
                 {li.message || `${inbound.ident ? `${inbound.ident} ` : ""}from ${inbound.origin || "origin"} · ${inbound.status || "status unknown"}${li.eta?` · lands ${fmtClock(li.eta, depTz)}`:""}`}
               </div>
             </div>
+          </div>
+        );
+      })()}
+      {(()=>{
+        const list = [];
+        if (t.cancelled || t.arrDelay >= 180) {
+          const e = eu261Estimate({ dep:f.dep, arr:f.arr, carrier:f.code, arrDelayMins:t.arrDelay, cancelled:t.cancelled });
+          if (e.covered && e.eligible !== false) list.push({ id:"comp", icon:"money", tone:C.green, text: e.amountEur ? `Compensation · up to €${e.amountEur}` : "Compensation may be owed", data:e });
+        }
+        list.push(...extraChips);
+        if (!list.length || !onInfo) return null;
+        return (
+          <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginTop:12 }}>
+            {list.map(c=>(
+              <button key={c.id} type="button" className="mr-btn mr-chip" data-testid={`chip-${c.id}-${f.id}`} onClick={()=>onInfo({ kind:c.id, f, data:c.data })} style={{ minHeight:44, display:"inline-flex", alignItems:"center", gap:7, padding:"0 14px", borderRadius:22, border:"none", background:tint(c.tone,0.16), color:c.tone, fontSize:13, fontWeight:600, cursor:"pointer", font:"inherit", fontFamily:C.sans }}>
+                <StatIcon id={c.icon} color={c.tone} size={15}/>{c.text}
+              </button>
+            ))}
           </div>
         );
       })()}
@@ -608,6 +627,25 @@ function MoreSheet({ onClose, tools, onExport, onOpen }) {
     </Sheet>
   );
 }
+function CompensationSheet({ f, data, onClose }) {
+  const e = data;
+  return (
+    <Sheet onClose={onClose} testid="sheet-comp" label="EU261 compensation estimate">
+      <SheetTitle title="Compensation estimate" sub={`${f.iata} · ${f.dep} → ${f.arr}${e.km?` · ${e.km.toLocaleString()} km`:""}`} onClose={onClose}/>
+      <div style={{ textAlign:"center", padding:"8px 0 18px" }}>
+        <div style={{ fontSize:13, color:C.soft, marginBottom:4 }}>{e.eligible ? "Likely owed per passenger" : "Possibly owed per passenger"}</div>
+        <div style={{ fontSize:48, fontWeight:700, color:C.text, letterSpacing:-1 }}>{e.amountEur ? `€${e.amountEur}` : "€250–€600"}</div>
+        <div style={{ fontSize:12, color:C.muted }}>EU261 / UK261 · cash, on top of care and rebooking</div>
+      </div>
+      <ul style={{ margin:"0 0 14px", padding:"0 0 0 18px", color:C.text, fontSize:14, lineHeight:1.6 }}>{e.reasons.map(r=><li key={r}>{r}</li>)}</ul>
+      {e.caveats.map(c=><div key={c} style={{ fontSize:13, color:C.soft, lineHeight:1.5, marginBottom:6 }}>{c}</div>)}
+      <div role="note" style={{ marginTop:12, padding:"12px 14px", borderRadius:14, background:tint(C.yellow,0.12), color:C.text, fontSize:13, lineHeight:1.5 }}>
+        <b>Estimate only, not legal advice.</b> Bands: €250 up to 1,500 km, €400 for 1,500–3,500 km (or intra-EU over 1,500 km), €600 over 3,500 km, by great-circle distance. Keep your boarding pass and receipts and claim with the operating airline first.
+      </div>
+    </Sheet>
+  );
+}
+
 const pillBtn = (primary) => ({ flex:1, minHeight:48, borderRadius:14, border:primary?"none":`1px solid ${C.border}`, background:primary?C.accent:C.chip, color:primary?"#fff":C.text, fontSize:15, fontWeight:600, cursor:"pointer", font:"inherit", fontFamily:C.sans });
 
 const inputStyle = () => ({ width:"100%", background:C.card, border:`1.5px solid ${C.border}`, borderRadius:12, padding:"12px 14px", color:C.text, fontSize:14, outline:"none", boxSizing:"border-box", fontFamily:C.sans });
@@ -848,7 +886,7 @@ function ToolChips({ items }) {
 }
 
 // ── Main flights screen ──
-function FlightsScreen({ flights, getLive, getMeta, now, navIdx, homeAddress, stayAddress, prefs, withKids, onTap, onAdd, onEditPrefs, onCalendar, tools, liveStrip, onMore }) {
+function FlightsScreen({ flights, getLive, getMeta, now, navIdx, homeAddress, stayAddress, prefs, withKids, onTap, onAdd, onEditPrefs, onCalendar, tools, liveStrip, onMore, onInfo }) {
   const phases = flights.map(f => ({ f, phase: flightPhase(f, getLive(f.id), now) }));
   const upcoming = phases.filter(p => p.phase !== "completed").map(p => p.f);
   const done = phases.filter(p => p.phase === "completed").map(p => p.f);
@@ -873,7 +911,7 @@ function FlightsScreen({ flights, getLive, getMeta, now, navIdx, homeAddress, st
         return (
           <div key={f.id}>
             {inbound && upcoming.includes(inbound) && <ConnectionCard inbound={inbound} outbound={f} liveIn={getLive(inbound.id)} liveOut={getLive(f.id)} withKids={withKids}/>}
-            <FlightCard f={f} live={getLive(f.id)} liveMeta={getMeta(f.id)} now={now} onTap={onTap}/>
+            <FlightCard f={f} live={getLive(f.id)} liveMeta={getMeta(f.id)} now={now} onTap={onTap} onInfo={onInfo}/>
           </div>
         );
       })}
@@ -884,7 +922,7 @@ function FlightsScreen({ flights, getLive, getMeta, now, navIdx, homeAddress, st
       </div>
       {done.length>0 && <>
         <div onClick={()=>setShowDone(s=>!s)} style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, margin:"6px 0 10px", cursor:"pointer" }}>COMPLETED ({done.length}) {showDone?"▲":"▼"}</div>
-        {showDone && done.map(f=><FlightCard key={f.id} f={f} live={getLive(f.id)} liveMeta={getMeta(f.id)} now={now} onTap={onTap}/>)}
+        {showDone && done.map(f=><FlightCard key={f.id} f={f} live={getLive(f.id)} liveMeta={getMeta(f.id)} now={now} onTap={onTap} onInfo={onInfo}/>)}
       </>}
       <div style={{ display:"flex", alignItems:"center", gap:12, background:tint(C.green,0.06), border:`1px solid ${tint(C.green,0.2)}`, borderRadius:14, padding:"12px 14px", marginBottom:14 }}>
         <StatIcon id="leaf" color={C.green} size={20}/>
@@ -2189,6 +2227,7 @@ export default function MyRunway() {
   const [tab, setTab] = useState("flights");
   const [overlay, setOverlay] = useState(null); // add | share | settings | corp | plans | cancellations | alternates | seats | intel | weather | family
   const [detail, setDetail] = useState(null);
+  const [info, setInfo] = useState(null); // contextual sheet: { kind, f, data }
   const [isDark, setIsDark] = usePersistentState("dark", true);
   const [navIdx, setNavIdx] = usePersistentState("navIdx", 0);
   const [homeAddress, setHomeAddress] = usePersistentState("home", "Miami, FL (Davie)");
@@ -2242,7 +2281,7 @@ export default function MyRunway() {
   const nextFlight = upcoming[0] || flights[flights.length - 1];
 
   useEffect(() => {
-    const h = e => { if (e.key === "Escape") { setDetail(null); setOverlay(null); } };
+    const h = e => { if (e.key === "Escape") { setDetail(null); setOverlay(null); setInfo(null); } };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
   }, []);
@@ -2316,7 +2355,7 @@ export default function MyRunway() {
       </div>
       <div style={{ flex:1 }}>
         {tab==="flights"&&<FlightsScreen flights={flights} getLive={getLive} getMeta={getMeta} now={now} navIdx={navIdx} homeAddress={homeAddress} stayAddress={stayAddress} prefs={prefs} withKids={withKids}
-          onTap={f=>setDetail(f)} onAdd={()=>setOverlay("add")} onEditPrefs={()=>setOverlay("settings")} onCalendar={exportTrip} tools={tools} onMore={()=>setOverlay("more")}
+          onTap={f=>setDetail(f)} onAdd={()=>setOverlay("add")} onEditPrefs={()=>setOverlay("settings")} onCalendar={exportTrip} tools={tools} onMore={()=>setOverlay("more")} onInfo={setInfo}
           liveStrip={<LiveStatusStrip liveState={state} scenario={scenario} realNow={realNow} hasCancellation={hasCancellation}/>}/>}
         {tab==="wallet"&&<WalletScreen/>}
         {tab==="lounges"&&<LoungeScreen/>}
@@ -2327,6 +2366,7 @@ export default function MyRunway() {
       {overlay==="add"&&<AddModal onClose={close} onAdd={f=>setUserFlights(x=>[...x, f])}/>}
       {overlay==="share"&&<ShareModal onClose={close} flight={nextFlight} live={nextFlight?getLive(nextFlight.id):null} now={now}/>}
       {overlay==="settings"&&<SettingsModal onClose={close} isDark={isDark} setIsDark={setIsDark} homeAddress={homeAddress} setHomeAddress={setHomeAddress} stayAddress={stayAddress} setStayAddress={setStayAddress} prefs={prefs} setPrefs={setPrefs} withKids={withKids} setWithKids={setWithKids} accountType={accountType} setAccountType={setAccountType} navIdx={navIdx} setNavIdx={setNavIdx} demoClock={demoClock} setDemoClock={setDemoClock} scenario={savedScenario} setScenario={s=>{ setScenario(s); setCancelDismissed(false); }} onPlans={()=>setOverlay("plans")}/>}
+      {info?.kind==="comp"&&<CompensationSheet f={info.f} data={info.data} onClose={()=>setInfo(null)}/>}
       {overlay==="more"&&<MoreSheet onClose={close} tools={tools.filter(t=>t[0]!=="weather"&&t[0]!=="intel")} onExport={exportData} onOpen={setOverlay}/>}
       {overlay==="corp"&&<CorporateDashboard onClose={close} corpRole="admin"/>}
       {overlay==="plans"&&<OverlayPage testid="plans" title="Plans & pricing" onBack={close}><PlansScreen/></OverlayPage>}
