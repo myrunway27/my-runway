@@ -1,6 +1,4 @@
-// MyRunway service worker. This build does not register it; it ships so devices
-// still running the old cache-first worker pick up an update and stop serving a
-// stale shell.
+// MyRunway service worker, registered from src/main.jsx in production builds.
 // Keeps the trip available with no signal once registered.
 //
 // Navigations are network-first on purpose. index.html names the hashed JS
@@ -12,10 +10,10 @@
 //
 // Bump VERSION on any change here: the byte change is what makes browsers
 // install the new worker, and activate then drops every older cache.
-const VERSION = "v3";
+const VERSION = "v4";
 const CACHE = `myrunway-shell-${VERSION}`;
 // Only files that exist in this build: addAll fails the whole install on any 404.
-const PRECACHE = ["/", "/index.html"];
+const PRECACHE = ["/", "/index.html", "/manifest.webmanifest", "/myrunway_icon.svg", "/myrunway_badge.svg"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(PRECACHE)));

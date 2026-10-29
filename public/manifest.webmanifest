@@ -1,0 +1,13 @@
+{
+  "name": "My Runway · Know Before You Go",
+  "short_name": "My Runway",
+  "description": "Know before you go. Leave-by times, connections and live flight changes.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#04070e",
+  "theme_color": "#04070e",
+  "icons": [
+    { "src": "/myrunway_icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
