@@ -77,7 +77,18 @@ for (const [label, viewport, dpr] of sizes) {
     const txt = await d.path().then(p => import("node:fs").then(fs => fs.readFileSync(p, "utf8")));
     if (k === "csv" ? !/^id,flight,/.test(txt) : !JSON.parse(txt).flights?.length) errors.push(`[${label}] ${k} export malformed`);
   }
-  await page.keyboard.press("Escape");
+  // 5c) Legal pages from More, cross-link, back; then the footer link
+  await page.getByTestId("more-privacy").click();
+  await page.waitForSelector('[data-testid="legal-privacy"] [data-testid="legal-draft-banner"]');
+  if (!page.url().endsWith("#privacy")) errors.push(`[${label}] privacy hash not set`);
+  await shot(page, `${label}-09c-privacy`);
+  await page.getByTestId("legal-to-terms").click();
+  await page.waitForSelector('[data-testid="legal-terms"] [data-testid="legal-draft-banner"]');
+  await page.getByTestId("back").click();
+  await page.getByTestId("link-terms").scrollIntoViewIfNeeded();
+  await page.getByTestId("link-terms").click();
+  await page.waitForSelector('[data-testid="legal-terms"]');
+  await page.getByTestId("back").click();
 
   // 6) Calendar export
   const [dl] = await Promise.all([page.waitForEvent("download"), page.getByTestId("ics-trip").click()]);

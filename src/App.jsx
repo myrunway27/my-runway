@@ -10,6 +10,7 @@ import { fetchLive, mockLive, verifyFlight, MOCK_SCENARIOS } from "./lib/liveDat
 import { fetchAirportWeather, fetchWeatherAt } from "./lib/weather.js";
 import { buildTripIcs, downloadText } from "./lib/ics.js";
 import { lateInbound } from "./lib/lateInbound.js";
+import { PRIVACY, TERMS, LEGAL_DRAFT_DATE } from "./lib/legal.js";
 import { eu261Estimate, fmtComp, noticeDaysBetween } from "./lib/eu261.js";
 import { fetchFaaStatus, statusFor, relevantEvents, describe as describeFaa } from "./lib/faaStatus.js";
 import { isUsInternationalArrival, CBP_MPC_URL, TSA_WHAT_CAN_I_BRING_URL, searchItems } from "./lib/travelInfo.js";
@@ -633,6 +634,45 @@ function OverlayPage({ title, sub, onBack, children, testid }) {
 }
 
 
+// ── Privacy policy / Terms (in-app views; deep-linkable as #privacy and #terms) ──
+async function deleteAllLocalData() {
+  if (!window.confirm("Delete all My Runway data on this device? This removes your added flights, edits and settings. It can't be undone.")) return;
+  try { Object.keys(localStorage).filter(k => k.startsWith("mr:")).forEach(k => localStorage.removeItem(k)); } catch { /* private mode */ }
+  try { if (window.caches) for (const k of await caches.keys()) await caches.delete(k); } catch { /* ignore */ }
+  try { for (const r of (await navigator.serviceWorker?.getRegistrations?.()) || []) await r.unregister(); } catch { /* ignore */ }
+  location.replace(location.pathname);
+}
+function LegalPage({ kind, onBack, onOther }) {
+  const doc = kind === "terms" ? TERMS : PRIVACY;
+  return (
+    <OverlayPage testid={`legal-${kind}`} title={doc.title} sub={`Draft · ${LEGAL_DRAFT_DATE}`} onBack={onBack}>
+      <div style={{ padding:"16px 16px 120px" }}>
+        <div role="note" data-testid="legal-draft-banner" style={{ display:"flex", gap:10, alignItems:"center", padding:"12px 14px", borderRadius:14, background:tint(C.yellow,0.14), border:`1px solid ${tint(C.yellow,0.45)}`, color:C.text, fontSize:14, fontWeight:700, marginBottom:18 }}>
+          <StatIcon id="alert" color={C.yellow} size={18}/>DRAFT: pending legal review
+        </div>
+        {doc.sections.map(([h, ps]) => (
+          <section key={h} style={{ marginBottom:20 }}>
+            <h2 style={{ fontSize:17, fontWeight:700, color:C.text, margin:"0 0 8px", letterSpacing:-0.2 }}>{h}</h2>
+            {ps.map((p, i) => <p key={i} style={{ fontSize:14, color:C.soft, lineHeight:1.55, margin:"0 0 8px" }}>{p}</p>)}
+          </section>
+        ))}
+        {kind === "privacy" && <button type="button" className="mr-btn" data-testid="delete-all-data" onClick={deleteAllLocalData} style={{ ...pillBtn(), width:"100%", color:C.red, marginBottom:12 }}>Delete all data on this device</button>}
+        <button type="button" className="mr-btn" data-testid={`legal-to-${kind === "terms" ? "privacy" : "terms"}`} onClick={onOther} style={{ ...pillBtn(), width:"100%" }}>{kind === "terms" ? "Read the Privacy Policy" : "Read the Terms of Use"}</button>
+      </div>
+    </OverlayPage>
+  );
+}
+function LegalLinks({ onOpen, style }) {
+  const a = { background:"none", border:"none", color:C.muted, fontSize:13, cursor:"pointer", minHeight:44, padding:"0 10px", fontFamily:C.sans, textDecoration:"underline" };
+  return (
+    <nav aria-label="Legal" data-testid="legal-footer" style={{ display:"flex", justifyContent:"center", alignItems:"center", gap:4, ...style }}>
+      <button type="button" className="mr-btn" data-testid="link-privacy" onClick={()=>onOpen("privacy")} style={a}>Privacy</button>
+      <span aria-hidden="true" style={{ color:C.muted }}>·</span>
+      <button type="button" className="mr-btn" data-testid="link-terms" onClick={()=>onOpen("terms")} style={a}>Terms</button>
+    </nav>
+  );
+}
+
 // ── Secondary features live behind "More" (progressive disclosure) ──
 function SheetTitle({ title, sub, onClose, id }) {
   return (
@@ -666,6 +706,9 @@ function MoreSheet({ onClose, tools, onExport, onOpen }) {
         <button type="button" className="mr-btn" data-testid="export-csv" onClick={()=>onExport("csv")} style={pillBtn()}>Export CSV</button>
       </div>
       <div style={{ fontSize:12, color:C.muted, margin:"8px 4px 0", lineHeight:1.4 }}>Downloads your flights, settings and any live status to this device. Nothing is uploaded.</div>
+      <div style={{ fontSize:12, fontWeight:600, color:C.muted, letterSpacing:0.4, margin:"22px 4px 6px" }}>ABOUT</div>
+      <MoreRow testid="more-privacy" icon="lock" title="Privacy Policy" sub="Draft · what's stored and what's sent" onClick={()=>onOpen("privacy")}/>
+      <MoreRow testid="more-terms" icon="info" title="Terms of Use" sub="Draft · information only, no guarantees" onClick={()=>onOpen("terms")}/>
     </Sheet>
   );
 }
@@ -1056,7 +1099,7 @@ function glanceFor(f, live, { now, prefs, isNext, onwardCancelled, inbound, live
 }
 
 // ── Main flights screen ──
-function FlightsScreen({ flights, getLive, getMeta, now, navIdx, homeAddress, stayAddress, prefs, withKids, onTap, onAdd, onEditPrefs, onCalendar, tools, liveStrip, onMore, onInfo, faa, faaNow, demo }) {
+function FlightsScreen({ flights, getLive, getMeta, now, navIdx, homeAddress, stayAddress, prefs, withKids, onTap, onAdd, onEditPrefs, onCalendar, tools, liveStrip, onMore, onInfo, faa, faaNow, demo, onLegal }) {
   const phases = flights.map(f => ({ f, phase: flightPhase(f, getLive(f.id), now) }));
   const upcoming = phases.filter(p => p.phase !== "completed").map(p => p.f);
   const done = phases.filter(p => p.phase === "completed").map(p => p.f);
@@ -1110,11 +1153,12 @@ function FlightsScreen({ flights, getLive, getMeta, now, navIdx, homeAddress, st
         <div style={{ flex:1 }}><div style={{ fontSize:12, fontWeight:700, color:C.green }}>Trip footprint (estimate)</div><div style={{ fontSize:11, color:C.soft }}>~{totalKm.toLocaleString()} km flown · roughly 2.1 t CO₂ per economy passenger</div></div>
       </div>
       <div data-testid="add-flight-cta" onClick={onAdd} style={{ background:C.card, border:`1.5px dashed ${C.border}`, borderRadius:16, padding:"16px", textAlign:"center", cursor:"pointer", color:C.soft, fontSize:14, fontWeight:600 }}>+ Add a flight</div>
+      {onLegal && <LegalLinks onOpen={onLegal} style={{ marginTop:8 }}/>}
     </div>
   );
 }
 
-function SettingsModal({ onClose, isDark, setIsDark, homeAddress, setHomeAddress, stayAddress, setStayAddress, prefs, setPrefs, withKids, setWithKids, accountType, setAccountType, navIdx, setNavIdx, demoClock, setDemoClock, scenario, setScenario, onPlans }) {
+function SettingsModal({ onLegal, onClose, isDark, setIsDark, homeAddress, setHomeAddress, stayAddress, setStayAddress, prefs, setPrefs, withKids, setWithKids, accountType, setAccountType, navIdx, setNavIdx, demoClock, setDemoClock, scenario, setScenario, onPlans }) {
   const [addr, setAddr] = useState(homeAddress);
   const [stay, setStay] = useState(stayAddress);
   const [drive, setDrive] = useState(String(prefs.driveMins));
@@ -1251,6 +1295,7 @@ function SettingsModal({ onClose, isDark, setIsDark, homeAddress, setHomeAddress
           </select>
         </div>
         <div data-testid="settings-save" onClick={save} style={{ background:saved?C.green:`linear-gradient(135deg,${C.accent},#007aaa)`, borderRadius:14, padding:"15px 0", textAlign:"center", fontWeight:800, fontSize:15, color:"#000", cursor:"pointer" }}>{saved?"Saved":"Save Settings"}</div>
+        {onLegal && <LegalLinks onOpen={k=>{ onClose(); onLegal(k); }} style={{ marginTop:10 }}/>}
       </div>
     </div>
   );
@@ -2490,6 +2535,14 @@ export default function MyRunway() {
   }
 
   const close = () => setOverlay(null);
+  // Legal pages are in-app views; #privacy / #terms deep-link to them (no router needed).
+  const openLegal = k => { setOverlay(k); try { history.replaceState(null, "", `#${k}`); } catch { /* ignore */ } };
+  const closeLegal = () => { setOverlay(null); try { history.replaceState(null, "", location.pathname + location.search); } catch { /* ignore */ } };
+  useEffect(() => {
+    const sync = () => { const h = location.hash.slice(1); if (h === "privacy" || h === "terms") setOverlay(h); };
+    sync(); window.addEventListener("hashchange", sync);
+    return () => window.removeEventListener("hashchange", sync);
+  }, []);
   const tools = [
     ["weather","sun","Weather",()=>setOverlay("weather")],
     ["intel","radar","Airports",()=>setOverlay("intel")],
@@ -2563,7 +2616,7 @@ export default function MyRunway() {
       </div>
       <div style={{ flex:1 }}>
         {tab==="flights"&&<FlightsScreen flights={flights} getLive={getLive} getMeta={getMeta} now={now} navIdx={navIdx} homeAddress={homeAddress} stayAddress={stayAddress} prefs={prefs} withKids={withKids}
-          onTap={f=>setDetail(f)} onAdd={()=>setOverlay("add")} onEditPrefs={()=>setOverlay("settings")} onCalendar={exportTrip} tools={tools} onMore={()=>setOverlay("more")} onInfo={setInfo} faa={faa} faaNow={realNow} demo={clock.demo}
+          onTap={f=>setDetail(f)} onAdd={()=>setOverlay("add")} onEditPrefs={()=>setOverlay("settings")} onCalendar={exportTrip} tools={tools} onMore={()=>setOverlay("more")} onInfo={setInfo} faa={faa} faaNow={realNow} demo={clock.demo} onLegal={openLegal}
           liveStrip={<LiveStatusStrip liveState={state} scenario={scenario} realNow={realNow} hasCancellation={hasCancellation}/>}/>}
         {tab==="wallet"&&<WalletScreen/>}
         {tab==="lounges"&&<LoungeScreen/>}
@@ -2573,13 +2626,14 @@ export default function MyRunway() {
       {detail&&<FlightDetailSheet f={flights.find(x=>x.id===detail.id)||detail} onEdit={p=>editFlight(detail.id,p)} live={getLive(detail.id)} liveMeta={getMeta(detail.id)} now={now} onClose={()=>setDetail(null)} onAlternates={()=>{ setAlternatesFor(detail); setDetail(null); setOverlay("alternates"); }}/>}
       {overlay==="add"&&<AddModal onClose={close} onAdd={f=>setUserFlights(x=>[...x, f])}/>}
       {overlay==="share"&&<ShareModal onClose={close} flight={nextFlight} live={nextFlight?getLive(nextFlight.id):null} now={now}/>}
-      {overlay==="settings"&&<SettingsModal onClose={close} isDark={isDark} setIsDark={setIsDark} homeAddress={homeAddress} setHomeAddress={setHomeAddress} stayAddress={stayAddress} setStayAddress={setStayAddress} prefs={prefs} setPrefs={setPrefs} withKids={withKids} setWithKids={setWithKids} accountType={accountType} setAccountType={setAccountType} navIdx={navIdx} setNavIdx={setNavIdx} demoClock={demoClock} setDemoClock={setDemoClock} scenario={savedScenario} setScenario={s=>{ setScenario(s); setCancelDismissed(false); }} onPlans={()=>setOverlay("plans")}/>}
+      {overlay==="settings"&&<SettingsModal onLegal={openLegal} onClose={close} isDark={isDark} setIsDark={setIsDark} homeAddress={homeAddress} setHomeAddress={setHomeAddress} stayAddress={stayAddress} setStayAddress={setStayAddress} prefs={prefs} setPrefs={setPrefs} withKids={withKids} setWithKids={setWithKids} accountType={accountType} setAccountType={setAccountType} navIdx={navIdx} setNavIdx={setNavIdx} demoClock={demoClock} setDemoClock={setDemoClock} scenario={savedScenario} setScenario={s=>{ setScenario(s); setCancelDismissed(false); }} onPlans={()=>setOverlay("plans")}/>}
       {info?.kind==="comp"&&<CompensationSheet f={info.f} data={info.data} onClose={()=>setInfo(null)}/>}
       {info?.kind==="customs"&&<CustomsSheet f={info.f} onClose={()=>setInfo(null)}/>}
       {overlay==="bring"&&<BringSheet onClose={close}/>}
       {(overlay==="faa"||info?.kind==="faa")&&<AirportStatusSheet faa={faa} codes={[...new Set(flights.filter(f=>flightPhase(f, getLive(f.id), now)!=="completed").flatMap(f=>[f.dep,f.arr]).filter(isUsAirport))]} onClose={()=>{ setInfo(null); if (overlay==="faa") close(); }} onRetry={()=>{ setFaa(null); setFaaTick(x=>x+1); }}/>}
-      {overlay==="more"&&<MoreSheet onClose={close} tools={tools.filter(t=>t[0]!=="weather"&&t[0]!=="intel")} onExport={exportData} onOpen={setOverlay}/>}
+      {overlay==="more"&&<MoreSheet onClose={close} tools={tools.filter(t=>t[0]!=="weather"&&t[0]!=="intel")} onExport={exportData} onOpen={k=>(k==="privacy"||k==="terms")?openLegal(k):setOverlay(k)}/>}
       {overlay==="corp"&&<CorporateDashboard onClose={close} corpRole="admin"/>}
+      {(overlay==="privacy"||overlay==="terms")&&<LegalPage kind={overlay} onBack={closeLegal} onOther={()=>openLegal(overlay==="terms"?"privacy":"terms")}/>}
       {overlay==="plans"&&<OverlayPage testid="plans" title="Plans & pricing" onBack={close}><PlansScreen/></OverlayPage>}
       {overlay==="cancellations"&&<CancellationScreen onBack={close} liveOn={liveOn}/>}
       {overlay==="alternates"&&<AlternateFlightsScreen onBack={close} flight={alternatesFor||cancelled}/>}
