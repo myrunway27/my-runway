@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { greatCircleKm, amountFor, coverage, eu261Estimate } from "./eu261.js";
+import { greatCircleKm, amountFor, coverage, eu261Estimate, noticeDaysBetween, fmtComp } from "./eu261.js";
 
 describe("eu261", () => {
   it("great-circle distance", () => {
@@ -33,8 +33,41 @@ describe("eu261", () => {
   });
   it("under 3h -> not eligible", () => expect(eu261Estimate({ dep: "ZRH", arr: "MIA", carrier: "LX", arrDelayMins: 179 }).eligible).toBe(false));
   it("short intra-EU -> 250; intra-EU >1500 capped at 400", () => {
-    expect(eu261Estimate({ dep: "LHR", arr: "CDG", carrier: "BA", arrDelayMins: 200 }).amountEur).toBe(250);
+    expect(eu261Estimate({ dep: "CDG", arr: "AMS", carrier: "AF", arrDelayMins: 200 }).amountEur).toBe(250);
+    expect(eu261Estimate({ dep: "CDG", arr: "TLV", carrier: "AF", arrDelayMins: 200 }).amountEur).toBe(400);
   });
+  describe("UK261 (GBP)", () => {
+    it("UK departures use GBP bands 220/350/520", () => {
+      const s = eu261Estimate({ dep: "LHR", arr: "CDG", carrier: "AF", arrDelayMins: 200 });
+      expect(s.scheme).toBe("UK261"); expect(s.currency).toBe("GBP"); expect(s.amount).toBe(220); expect(s.amountEur).toBeNull();
+      expect(eu261Estimate({ dep: "LHR", arr: "ATH", carrier: "A3", arrDelayMins: 200 }).amount).toBe(350);
+      expect(eu261Estimate({ dep: "LHR", arr: "JFK", carrier: "AA", arrDelayMins: 300 }).amount).toBe(520);
+    });
+    it("UK carrier into the UK is UK261; non-UK carrier into the UK is not covered", () => {
+      const s = eu261Estimate({ dep: "JFK", arr: "LHR", carrier: "BA", arrDelayMins: 300 });
+      expect(s.scheme).toBe("UK261"); expect(s.amount).toBe(520);
+      expect(eu261Estimate({ dep: "JFK", arr: "LHR", carrier: "AA", arrDelayMins: 300 }).covered).toBe(false);
+      expect(eu261Estimate({ dep: "JFK", arr: "LHR", carrier: "AF", arrDelayMins: 300 }).covered).toBe(false);
+    });
+    it("EU departures on UK carriers stay EU261 in euros; non-UK stays EUR", () => {
+      const s = eu261Estimate({ dep: "CDG", arr: "LHR", carrier: "BA", arrDelayMins: 200 });
+      expect(s.scheme).toBe("EU261"); expect(s.currency).toBe("EUR"); expect(s.amountEur).toBe(250);
+      expect(eu261Estimate({ dep: "JFK", arr: "CDG", carrier: "BA", arrDelayMins: 300 }).covered).toBe(false);
+    });
+    it("unknown-notice UK cancellation shows a GBP amount, possibly owed", () => {
+      const s = eu261Estimate({ dep: "LHR", arr: "JFK", carrier: "BA", cancelled: true });
+      expect(s.eligible).toBeNull(); expect(s.amount).toBe(520); expect(s.reasons.join(" ")).toMatch(/Possibly owed/);
+    });
+  });
+  it("noticeDaysBetween + exact 14-day rule", () => {
+    expect(noticeDaysBetween("2026-06-18", "2026-07-02")).toBe(14);
+    expect(noticeDaysBetween("2026-06-19", "2026-07-02")).toBe(13);
+    expect(noticeDaysBetween("bad", "2026-07-02")).toBeNull();
+    const d14 = noticeDaysBetween("2026-06-18", "2026-07-02"), d13 = noticeDaysBetween("2026-06-19", "2026-07-02");
+    expect(eu261Estimate({ dep: "ZRH", arr: "MIA", carrier: "LX", cancelled: true, noticeDays: d14 }).eligible).toBe(false);
+    expect(eu261Estimate({ dep: "ZRH", arr: "MIA", carrier: "LX", cancelled: true, noticeDays: d13 }).eligible).toBe(true);
+  });
+  it("fmtComp", () => { expect(fmtComp(350, "GBP")).toBe("£350"); expect(fmtComp(400, "EUR")).toBe("€400"); });
   it("cancellation notice", () => {
     expect(eu261Estimate({ dep: "ZRH", arr: "MIA", carrier: "LX", cancelled: true, noticeDays: 3 }).eligible).toBe(true);
     expect(eu261Estimate({ dep: "ZRH", arr: "MIA", carrier: "LX", cancelled: true, noticeDays: 20 }).eligible).toBe(false);

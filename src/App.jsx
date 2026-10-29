@@ -10,7 +10,7 @@ import { fetchLive, mockLive, verifyFlight, MOCK_SCENARIOS } from "./lib/liveDat
 import { fetchAirportWeather, fetchWeatherAt } from "./lib/weather.js";
 import { buildTripIcs, downloadText } from "./lib/ics.js";
 import { lateInbound } from "./lib/lateInbound.js";
-import { eu261Estimate } from "./lib/eu261.js";
+import { eu261Estimate, fmtComp } from "./lib/eu261.js";
 import { fetchFaaStatus, statusFor, describe as describeFaa } from "./lib/faaStatus.js";
 import { isUsInternationalArrival, CBP_MPC_URL, TSA_WHAT_CAN_I_BRING_URL, searchItems } from "./lib/travelInfo.js";
 import { buildTripsCsv, buildTripsJson, downloadBlob } from "./lib/exportData.js";
@@ -336,7 +336,7 @@ function FlightCard({ f, live, liveMeta, now, onTap, onInfo, extraChips = [] }) 
         const list = [];
         if (t.cancelled || t.arrDelay >= 180) {
           const e = eu261Estimate({ dep:f.dep, arr:f.arr, carrier:f.code, arrDelayMins:t.arrDelay, cancelled:t.cancelled });
-          if (e.covered && e.eligible !== false) list.push({ id:"comp", icon:"money", tone:C.green, text: e.amountEur ? `Compensation · up to €${e.amountEur}` : "Compensation may be owed", data:e });
+          if (e.covered && e.eligible !== false) list.push({ id:"comp", icon:"money", tone:C.green, text: e.amount ? `Compensation · up to ${fmtComp(e.amount,e.currency)}` : "Compensation may be owed", data:e });
         }
         if (!t.cancelled && phase !== "completed" && isUsInternationalArrival(f)) list.push({ id:"customs", icon:"door", tone:C.accent, text:"Customs: set up MPC" });
         list.push(...extraChips);
@@ -637,17 +637,17 @@ function MoreSheet({ onClose, tools, onExport, onOpen }) {
 function CompensationSheet({ f, data, onClose }) {
   const e = data;
   return (
-    <Sheet onClose={onClose} testid="sheet-comp" label="EU261 compensation estimate">
+    <Sheet onClose={onClose} testid="sheet-comp" label={`${e.scheme||"EU261"} compensation estimate`}>
       <SheetTitle title="Compensation estimate" sub={`${f.iata} · ${f.dep} → ${f.arr}${e.km?` · ${e.km.toLocaleString()} km`:""}`} onClose={onClose}/>
       <div style={{ textAlign:"center", padding:"8px 0 18px" }}>
         <div style={{ fontSize:13, color:C.soft, marginBottom:4 }}>{e.eligible ? "Likely owed per passenger" : "Possibly owed per passenger"}</div>
-        <div style={{ fontSize:48, fontWeight:700, color:C.text, letterSpacing:-1 }}>{e.amountEur ? `€${e.amountEur}` : "€250–€600"}</div>
-        <div style={{ fontSize:12, color:C.muted }}>EU261 / UK261 · cash, on top of care and rebooking</div>
+        <div style={{ fontSize:48, fontWeight:700, color:C.text, letterSpacing:-1 }}>{e.amount ? fmtComp(e.amount,e.currency) : e.range ? `${fmtComp(e.range[0],e.currency)}–${fmtComp(e.range[1],e.currency)}` : "—"}</div>
+        <div style={{ fontSize:12, color:C.muted }}>{e.scheme==="UK261"?"UK261":"EU261"} · cash, on top of care and rebooking</div>
       </div>
       <ul style={{ margin:"0 0 14px", padding:"0 0 0 18px", color:C.text, fontSize:14, lineHeight:1.6 }}>{e.reasons.map(r=><li key={r}>{r}</li>)}</ul>
       {e.caveats.map(c=><div key={c} style={{ fontSize:13, color:C.soft, lineHeight:1.5, marginBottom:6 }}>{c}</div>)}
       <div role="note" style={{ marginTop:12, padding:"12px 14px", borderRadius:14, background:tint(C.yellow,0.12), color:C.text, fontSize:13, lineHeight:1.5 }}>
-        <b>Estimate only, not legal advice.</b> Bands: €250 up to 1,500 km, €400 for 1,500–3,500 km (or intra-EU over 1,500 km), €600 over 3,500 km, by great-circle distance. Keep your boarding pass and receipts and claim with the operating airline first.
+        <b>Estimate only, not legal advice.</b> {e.scheme==="UK261" ? "UK261 bands: £220 up to 1,500 km, £350 for 1,500–3,500 km (or domestic UK over 1,500 km), £520 over 3,500 km" : "EU261 bands: €250 up to 1,500 km, €400 for 1,500–3,500 km (or intra-EU over 1,500 km), €600 over 3,500 km"}, by great-circle distance. Keep your boarding pass and receipts and claim with the operating airline first.
       </div>
     </Sheet>
   );
