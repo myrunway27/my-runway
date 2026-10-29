@@ -11,7 +11,7 @@ import { fetchAirportWeather, fetchWeatherAt } from "./lib/weather.js";
 import { buildTripIcs, downloadText } from "./lib/ics.js";
 import { lateInbound } from "./lib/lateInbound.js";
 import { eu261Estimate, fmtComp, noticeDaysBetween } from "./lib/eu261.js";
-import { fetchFaaStatus, statusFor, describe as describeFaa } from "./lib/faaStatus.js";
+import { fetchFaaStatus, statusFor, relevantEvents, describe as describeFaa } from "./lib/faaStatus.js";
 import { isUsInternationalArrival, CBP_MPC_URL, TSA_WHAT_CAN_I_BRING_URL, searchItems } from "./lib/travelInfo.js";
 import { buildTripsCsv, buildTripsJson, downloadBlob } from "./lib/exportData.js";
 
@@ -712,10 +712,16 @@ function BringSheet({ onClose }) {
 
 // FAA NAS status: US airports only. Ground stop / closure = red, delays = yellow.
 const isUsAirport = code => airport(code)?.country === "US";
-function faaChip(faa, f) {
-  if (!faa?.ok) return null;
+// FAA chip for one flight: real clock only (hidden in demo mode), routine closures dropped,
+// and only notices that apply to the flight's own day / time window at that airport.
+function faaChip(faa, f, { now, demo, live } = {}) {
+  if (!faa?.ok || demo) return null;
+  const t = liveTimes(f, live);
+  const H = 3600000;
   for (const code of [f.dep, f.arr].filter(isUsAirport)) {
-    const ev = statusFor(faa, code);
+    const at = code === f.dep ? +t.estDep : +t.estArr;
+    const win = code === f.dep ? { from:new Date(at - 3*H), to:new Date(at + H) } : { from:new Date(at - H), to:new Date(at + H) };
+    const ev = relevantEvents(faa, code, { now: now || new Date(), ...win, tz: tzOf(code) });
     if (!ev.length) continue;
     const severe = ev.some(e => e.type === "ground_stop" || e.type === "closure");
     const kind = ev.find(e => e.type === "ground_stop") ? "ground stop" : ev.find(e => e.type === "closure") ? "closure notice" : "delays";
@@ -1001,7 +1007,7 @@ function ToolChips({ items }) {
 }
 
 // ── Main flights screen ──
-function FlightsScreen({ flights, getLive, getMeta, now, navIdx, homeAddress, stayAddress, prefs, withKids, onTap, onAdd, onEditPrefs, onCalendar, tools, liveStrip, onMore, onInfo, faa }) {
+function FlightsScreen({ flights, getLive, getMeta, now, navIdx, homeAddress, stayAddress, prefs, withKids, onTap, onAdd, onEditPrefs, onCalendar, tools, liveStrip, onMore, onInfo, faa, faaNow, demo }) {
   const phases = flights.map(f => ({ f, phase: flightPhase(f, getLive(f.id), now) }));
   const upcoming = phases.filter(p => p.phase !== "completed").map(p => p.f);
   const done = phases.filter(p => p.phase === "completed").map(p => p.f);
@@ -1026,7 +1032,7 @@ function FlightsScreen({ flights, getLive, getMeta, now, navIdx, homeAddress, st
         return (
           <div key={f.id}>
             {inbound && upcoming.includes(inbound) && <ConnectionCard inbound={inbound} outbound={f} liveIn={getLive(inbound.id)} liveOut={getLive(f.id)} withKids={withKids}/>}
-            <FlightCard f={f} live={getLive(f.id)} liveMeta={getMeta(f.id)} now={now} onTap={onTap} onInfo={onInfo} extraChips={[faaChip(faa, f)].filter(Boolean)}/>
+            <FlightCard f={f} live={getLive(f.id)} liveMeta={getMeta(f.id)} now={now} onTap={onTap} onInfo={onInfo} extraChips={[faaChip(faa, f, { now: faaNow, demo, live: getLive(f.id) })].filter(Boolean)}/>
           </div>
         );
       })}
@@ -2497,7 +2503,7 @@ export default function MyRunway() {
       </div>
       <div style={{ flex:1 }}>
         {tab==="flights"&&<FlightsScreen flights={flights} getLive={getLive} getMeta={getMeta} now={now} navIdx={navIdx} homeAddress={homeAddress} stayAddress={stayAddress} prefs={prefs} withKids={withKids}
-          onTap={f=>setDetail(f)} onAdd={()=>setOverlay("add")} onEditPrefs={()=>setOverlay("settings")} onCalendar={exportTrip} tools={tools} onMore={()=>setOverlay("more")} onInfo={setInfo} faa={faa}
+          onTap={f=>setDetail(f)} onAdd={()=>setOverlay("add")} onEditPrefs={()=>setOverlay("settings")} onCalendar={exportTrip} tools={tools} onMore={()=>setOverlay("more")} onInfo={setInfo} faa={faa} faaNow={realNow} demo={clock.demo}
           liveStrip={<LiveStatusStrip liveState={state} scenario={scenario} realNow={realNow} hasCancellation={hasCancellation}/>}/>}
         {tab==="wallet"&&<WalletScreen/>}
         {tab==="lounges"&&<LoungeScreen/>}
