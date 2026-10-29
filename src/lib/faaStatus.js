@@ -59,25 +59,16 @@ export function notamWindow(text) {
   return { start: iso(m[1]), end: m[2] === "PERM" ? null : iso(m[2]) };
 }
 
-const localHour = (iso, tz) => {
-  try { return +new Intl.DateTimeFormat("en-US", { hour: "numeric", hourCycle: "h23", timeZone: tz || "UTC" }).format(new Date(iso)); }
-  catch { return new Date(iso).getUTCHours(); }
-};
 
 /**
  * Routine / scheduled closures that don't concern an airline passenger:
- * recurring schedules (DLY, DAILY, NIGHTLY, weekday ranges) or a planned overnight
- * window (<= 10h, starting 21:00–03:00 and ending by 08:00 local).
+ * recurring schedules (DLY, DAILY, NIGHTLY, weekday ranges). One-off closures (even overnight)
+ * are not routine: they show when their NOTAM window overlaps the flight's window.
  */
-export function isRoutineClosure(ev, { tz } = {}) {
+export function isRoutineClosure(ev) {
   if (ev?.type !== "closure") return false;
   const r = ev.reason || "";
   if (/\b(DLY|DAILY|NIGHTLY|EVERY|WKLY|WEEKLY)\b|\b(MON|TUE|WED|THU|FRI|SAT|SUN)-(MON|TUE|WED|THU|FRI|SAT|SUN)\b/i.test(r)) return true;
-  if (ev.windowStart && ev.windowEnd) {
-    const hrs = (Date.parse(ev.windowEnd) - Date.parse(ev.windowStart)) / 3600000;
-    const sh = localHour(ev.windowStart, tz), eh = localHour(ev.windowEnd, tz);
-    if (hrs > 0 && hrs <= 10 && (sh >= 21 || sh <= 3) && eh <= 8) return true;
-  }
   return false;
 }
 

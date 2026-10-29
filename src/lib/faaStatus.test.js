@@ -51,9 +51,11 @@ describe("FAA relevance filtering", () => {
     expect(notamWindow("no window")).toBeNull();
     expect(live.airports.LGA[0].windowStart).toBe("2026-10-29T03:59:00.000Z");
   });
-  it("flags daily and planned overnight closures as routine", () => {
+  it("flags recurring closures as routine, not one-off overnight ones", () => {
     expect(isRoutineClosure(live.airports.SNA[0], { tz: LA })).toBe(true); // DLY 0630-1315
-    expect(isRoutineClosure(live.airports.LGA[0], { tz: NY })).toBe(true); // 23:59-06:00 local
+    expect(isRoutineClosure(live.airports.LGA[0], { tz: NY })).toBe(false); // one-off 23:59-06:00 local
+    expect(isRoutineClosure({ type: "closure", reason: "AD AP CLSD NIGHTLY 0400-1000" }, {})).toBe(true);
+    expect(isRoutineClosure({ type: "closure", reason: "AD AP CLSD MON-FRI 0400-1000" }, {})).toBe(true);
     const daytime = { type: "closure", reason: "X", windowStart: "2026-10-29T15:00:00.000Z", windowEnd: "2026-10-29T18:00:00.000Z" };
     expect(isRoutineClosure(daytime, { tz: NY })).toBe(false);
     const long = { type: "closure", reason: "X", windowStart: "2026-10-29T03:00:00.000Z", windowEnd: "2026-10-30T12:00:00.000Z" };
@@ -71,7 +73,9 @@ describe("FAA relevance filtering", () => {
   });
   it("relevantEvents drops routine + out-of-window notices", () => {
     const now = new Date("2026-10-29T08:00:00Z");
-    expect(relevantEvents(live, "LGA", { now, from: new Date("2026-10-29T05:00:00Z"), to: new Date("2026-10-29T06:00:00Z"), tz: NY })).toEqual([]);
+    // one-off overnight LGA closure (03:59Z-10:00Z): shown when it overlaps the flight, hidden otherwise
+    expect(relevantEvents(live, "LGA", { now, from: new Date("2026-10-29T05:00:00Z"), to: new Date("2026-10-29T06:00:00Z"), tz: NY })).toHaveLength(1);
+    expect(relevantEvents(live, "LGA", { now, from: new Date("2026-10-29T14:00:00Z"), to: new Date("2026-10-29T15:00:00Z"), tz: NY })).toEqual([]);
     expect(relevantEvents(live, "SNA", { now, from: new Date("2026-10-29T08:00:00Z"), to: new Date("2026-10-29T09:00:00Z"), tz: LA })).toEqual([]);
   });
 });
