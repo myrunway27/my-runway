@@ -1,16 +1,57 @@
-# React + Vite
+# My Runway — Know Before You Go
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Flight-day companion for the Israel family trip (MIA → TLV → ZRH → MIA).
+Vite + React 19 single-page app with one serverless proxy (`api/flight.js`).
 
-Currently, two official plugins are available:
+**Golden rule:** the booking is the source of truth. Live data (FlightAware /
+AeroDataBox / AviationStack) is only ever shown as an overlay ("What changed"),
+and the app works fully with no API keys at all.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Run locally
 
-## React Compiler
+```bash
+npm install
+cp .env.example .env   # optional; leave blank to run booking-only
+npm run dev            # http://localhost:5173 (dev middleware serves /api/flight)
+```
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+URL helpers (demo only):
 
-## Expanding the Oxlint configuration
+| Param | Effect |
+|---|---|
+| `?clock=2026-07-01T23:40:00Z` | pin the demo clock (default replays travel day, 2:40 AM Tel Aviv) |
+| `?demo=delay` / `ontime` / `cancel` | simulated live overlay |
+| `?onboarding=0` | skip onboarding |
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+The demo clock and scenario can also be switched in Settings → Demo.
+
+## Test
+
+```bash
+npm run lint     # oxlint src api
+npm test         # vitest: trip logic, ics, weather, api proxy
+npm run build
+npm run dev &  npm run e2e -- mytag   # Playwright smoke, mobile 390x844 + desktop 1280x800
+```
+
+The smoke test clicks through every screen, saves screenshots to `screenshots/`,
+and exits non-zero on any console error/warning or page error.
+
+## Going live (not done — needs the owner)
+
+1. **Rotate the old keys.** The original source files had three provider keys
+   hardcoded in the browser bundle (AeroDataBox via RapidAPI, AviationStack,
+   FlightAware AeroAPI). Treat them as leaked: regenerate all three.
+2. **Create a GitHub repo** and push this repo (`.env` is git-ignored).
+3. **Import into Vercel** (framework: Vite). Add Environment Variables
+   (Production + Preview), server-side only, no `VITE_` prefix:
+   - `FLIGHTAWARE_API_KEY` (primary)
+   - `AERODATABOX_RAPIDAPI_KEY` (fallback)
+   - `AVIATIONSTACK_API_KEY` (last fallback)
+   Any subset works; with none, `/api/flight` answers `{configured:false}` and the
+   app shows the booking only.
+4. Optional: turn off the demo clock (Settings → Demo) or remove `DEMO_ANCHOR`
+   in `src/App.jsx` once there's a real upcoming trip.
+
+Weather uses Open-Meteo (no key). Git author in this repo is a local placeholder
+(`asaf@myrunway.local`) — amend before pushing if you want your real identity.

@@ -6,8 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "lint": "oxlint",
-    "preview": "vite preview"
+    "lint": "oxlint src api",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "e2e": "node e2e/smoke.mjs"
   },
   "dependencies": {
     "react": "^19.3.1",
