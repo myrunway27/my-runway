@@ -15,23 +15,25 @@ import { fetchFaaStatus, statusFor, describe as describeFaa } from "./lib/faaSta
 import { isUsInternationalArrival, CBP_MPC_URL, TSA_WHAT_CAN_I_BRING_URL, searchItems } from "./lib/travelInfo.js";
 import { buildTripsCsv, buildTripsJson, downloadBlob } from "./lib/exportData.js";
 
+// Apple-style system theme: SF font stack, one accent, dark first.
+const SF = "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro', system-ui, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
+const SF_DISPLAY = "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro', system-ui, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
+const SF_MONO = "ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace";
 const DARK = {
-  bg:"#04070e", surface:"#090f1c", card:"#0d1525", border:"#13203a",
-  accent:"#00c8f0", green:"#00e87a", yellow:"#ffc800",
-  red:"#ff3a54", purple:"#a78bfa", orange:"#ff5c2b",
-  text:"#d4ecff", muted:"#4e7090", soft:"#7a9ab8", chip:"rgba(255,255,255,0.06)",
-  mono:"'Courier New',monospace", sans:"Georgia,serif",
-  display:"'Playfair Display','Times New Roman',serif",
-  deco:"'Courier New',monospace",
+  bg:"#000000", surface:"#1c1c1e", card:"rgba(28,28,30,0.72)", border:"rgba(255,255,255,0.09)",
+  accent:"#0a84ff", green:"#30d158", yellow:"#ffd60a",
+  red:"#ff453a", purple:"#bf5af2", orange:"#ff9f0a",
+  text:"#f5f5f7", muted:"#98989f", soft:"#c7c7cc", chip:"rgba(118,118,128,0.24)",
+  glass:"rgba(30,30,32,0.72)",
+  mono:SF, sans:SF, display:SF_DISPLAY, deco:SF_MONO,
 };
 const LIGHT = {
-  bg:"#f5f0e8", surface:"#fffff8", card:"#fffef5", border:"#d4c9a8",
-  accent:"#8b5e1a", green:"#4a7c3f", yellow:"#b88a00",
-  red:"#8b2020", purple:"#5a3a6b", orange:"#c4511a",
-  text:"#1a1208", muted:"#7a6a4a", soft:"#5a4a2a", chip:"rgba(0,0,0,0.05)",
-  mono:"'Courier New',monospace", sans:"Georgia,serif",
-  display:"'Playfair Display','Times New Roman',serif",
-  deco:"'Courier New',monospace",
+  bg:"#f2f2f7", surface:"#ffffff", card:"rgba(255,255,255,0.78)", border:"rgba(60,60,67,0.14)",
+  accent:"#0066cc", green:"#1f7a37", yellow:"#946200",
+  red:"#c4271d", purple:"#8e3fb8", orange:"#b35900",
+  text:"#1c1c1e", muted:"#636366", soft:"#3a3a3c", chip:"rgba(118,118,128,0.14)",
+  glass:"rgba(255,255,255,0.72)",
+  mono:SF, sans:SF, display:SF_DISPLAY, deco:SF_MONO,
 };
 let C = DARK;
 // Developer panels (data sources, demo controls) only in `vite dev`, or with ?dev=1
@@ -145,9 +147,9 @@ function Arc({ progress=0, color="#00c8f0" }) {
   const py = progress===0 ? h-28 : h-10 - Math.sin(pct*Math.PI)*24;
   return (
     <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} style={{ overflow:"visible", display:"block", margin:"0 auto", maxWidth:"100%" }}>
-      <path d={`M 16 ${h-8} Q ${cx} ${h-50} ${w-16} ${h-8}`} fill="none" stroke="#2a4060" strokeWidth="1.5" strokeDasharray="4 5"/>
-      <circle cx="16" cy={h-8} r="4" fill="#0d1525" stroke={color} strokeWidth="2"/>
-      <circle cx={w-16} cy={h-8} r="4" fill="#0d1525" stroke={color} strokeWidth="2"/>
+      <path d={`M 16 ${h-8} Q ${cx} ${h-50} ${w-16} ${h-8}`} fill="none" stroke="rgba(255,255,255,0.22)" strokeWidth="1.5" strokeDasharray="4 5"/>
+      <circle cx="16" cy={h-8} r="4" fill="#1c1c1e" stroke={color} strokeWidth="2"/>
+      <circle cx={w-16} cy={h-8} r="4" fill="#1c1c1e" stroke={color} strokeWidth="2"/>
       <circle cx={px} cy={py} r="14" fill={color} opacity="0.25"/>
       <circle cx={px} cy={py} r="14" fill="none" stroke={color} strokeWidth="2.5"/>
       {/* line-art plane (no emoji glyphs) */}
@@ -202,7 +204,7 @@ function WhatChangedBanner({ flights, getLive }) {
     <div data-testid="what-changed" style={{ background:tint(col,0.07), border:`1px solid ${tint(col,0.3)}`, borderRadius:16, padding:"13px 16px", marginBottom:14 }}>
       <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
         <StatIcon id={worst==="accent"?"refresh":"alert"} color={col} size={18}/>
-        <div style={{ fontSize:12, fontWeight:800, color:col, fontFamily:C.mono, letterSpacing:1.5 }}>WHAT CHANGED SINCE YOU BOOKED</div>
+        <div style={{ fontSize:12, fontWeight:800, color:col, fontFamily:C.mono, letterSpacing:0.6,  }}>WHAT CHANGED SINCE YOU BOOKED</div>
       </div>
       {rows.map((r,i)=>(
         <div key={i} style={{ display:"flex", gap:10, alignItems:"baseline", padding:"6px 0", borderTop:i?`1px solid ${tint(col,0.15)}`:"none" }}>
@@ -228,12 +230,12 @@ function ConnectionCard({ inbound, outbound, liveIn, liveOut, withKids }) {
     <div data-testid="connection-card" style={{ background:tint(col,0.07), borderRadius:16, border:`1px solid ${tint(col,0.28)}`, overflow:"hidden", marginBottom:12, marginTop:2 }}>
       <div onClick={()=>setOpen(o=>!o)} style={{ padding:"13px 16px", display:"flex", alignItems:"center", gap:12, cursor:"pointer" }}>
         <div style={{ textAlign:"center", flexShrink:0 }}>
-          <div style={{ fontSize:9, color:C.muted, fontFamily:C.mono, letterSpacing:1 }}>{outbound.dep}</div>
+          <div style={{ fontSize:9, color:C.muted, fontFamily:C.mono, letterSpacing:0.6, fontWeight:600 }}>{outbound.dep}</div>
           <div style={{ fontSize:20, fontWeight:800, color:col, fontFamily:C.mono, lineHeight:1.1 }}>{fmtDuration(r.mins)}</div>
         </div>
         <div style={{ flex:1, minWidth:0 }}>
           <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:3 }}>
-            <span style={{ fontSize:10, fontWeight:800, color:"#000", background:col, borderRadius:20, padding:"2px 9px", fontFamily:C.mono, letterSpacing:1 }}>{copy.label}</span>
+            <span style={{ fontSize:10, fontWeight:800, color:"#000", background:col, borderRadius:20, padding:"2px 9px", fontFamily:C.mono, letterSpacing:0.6,  }}>{copy.label}</span>
             <span style={{ fontSize:12, color:C.soft }}>connection</span>
           </div>
           <div style={{ fontSize:12, color:C.soft }}>{copy.text}</div>
@@ -246,7 +248,7 @@ function ConnectionCard({ inbound, outbound, liveIn, liveOut, withKids }) {
           <div style={{ display:"flex", marginBottom:14, paddingTop:14 }}>
             {[["LAYOVER",fmtDuration(r.mins),C.text],["NEED",`${r.mct}m`,C.yellow],["SPARE",`${r.slack}m`,col]].map(([l,v,c],i)=>(
               <div key={l} style={{ flex:1, textAlign:"center", borderRight:i<2?`1px solid ${C.border}`:"none" }}>
-                <div style={{ fontSize:9, color:C.muted, fontFamily:C.mono, letterSpacing:1, marginBottom:5 }}>{l}</div>
+                <div style={{ fontSize:9, color:C.muted, fontFamily:C.mono, letterSpacing:0.6, fontWeight:600, marginBottom:5 }}>{l}</div>
                 <div style={{ fontSize:22, fontWeight:800, color:c, fontFamily:C.mono }}>{v}</div>
               </div>
             ))}
@@ -255,7 +257,7 @@ function ConnectionCard({ inbound, outbound, liveIn, liveOut, withKids }) {
             Land {fmtClock(r.arrAt, tzA)} · depart {fmtClock(r.depAt, tzA)} ({tzA.split("/")[1]} time). Minimum we plan for: {r.factors.map(f=>`${f.label.toLowerCase()} ${f.mins}m`).join(" + ")}.
           </div>
           {conn?.steps && <>
-            <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:1.5, marginBottom:8 }}>STEP BY STEP · ~{walk} MIN</div>
+            <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:0.6, fontWeight:600, marginBottom:8 }}>STEP BY STEP · ~{walk} MIN</div>
             {conn.steps.map((s,i)=>(
               <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"9px 0", borderBottom:i<conn.steps.length-1?`1px solid ${C.border}`:"none" }}>
                 <span style={{ width:28, display:"flex", justifyContent:"center", flexShrink:0 }}><StatIcon id={s.icon} color={C.soft} size={20}/></span>
@@ -284,7 +286,7 @@ function FlightCard({ f, live, liveMeta, now, onTap, onInfo, extraChips = [] }) 
   const dayShift = f.arrDate && f.arrDate !== f.depDate ? "+1" : "";
   const inbound = live?.inbound;
   return (
-    <div data-testid={`flight-${f.id}`} style={{ background:C.card, borderRadius:20, border:`1px solid ${status==="Cancelled"?tint(C.red,0.45):C.border}`, padding:16, marginBottom:10, animation:"cardIn 0.4s ease", opacity:phase==="completed"?0.75:1 }}>
+    <div data-testid={`flight-${f.id}`} className="mr-glass mr-card" style={{ background:C.card, borderRadius:22, border:`1px solid ${status==="Cancelled"?tint(C.red,0.45):C.border}`, padding:16, marginBottom:10, animation:"cardIn 0.5s cubic-bezier(.34,1.4,.64,1)", opacity:phase==="completed"?0.75:1 }}>
       <div onClick={()=>onTap(f)} style={{ cursor:"pointer" }}>
         <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:14 }}>
           <AirlineLogo code={f.code} size={30}/>
@@ -315,7 +317,7 @@ function FlightCard({ f, live, liveMeta, now, onTap, onInfo, extraChips = [] }) 
         </div>
       </div>
       {inbound&&(()=>{
-        const li = lateInbound({ inbound, ourDep: t.estDep, aircraft: f.aircraft });
+        const li = lateInbound({ inbound, ourDep: t.schedDep, aircraft: f.aircraft, knownDelayMins: Math.max(0, t.depDelay) });
         const warn = li.level==="late" || li.level==="watch", tight = li.level==="tight";
         const col = warn ? C.red : tight ? C.yellow : C.soft;
         return (
@@ -406,7 +408,7 @@ function LeaveByCard({ f, live, now, navIdx, homeAddress, stayAddress, prefs, on
         </div>
         <div style={{ display:"flex", alignItems:"center", gap:10, background:C.surface, borderRadius:11, padding:"11px 14px", marginBottom:14, border:`1px solid ${C.border}` }}>
           <StatIcon id="home" color={C.accent} size={20}/>
-          <div style={{ flex:1, minWidth:0 }}><div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:1.5, marginBottom:2 }}>FROM</div><div style={{ fontSize:14, color:C.text, fontWeight:600 }}>{from}</div></div>
+          <div style={{ flex:1, minWidth:0 }}><div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:0.6, fontWeight:600, marginBottom:2 }}>FROM</div><div style={{ fontSize:14, color:C.text, fontWeight:600 }}>{from}</div></div>
           <span onClick={onEdit} style={{ fontSize:13, color:C.accent, cursor:"pointer" }}>Change</span>
         </div>
         <a href={navUrl(app, ap)} target="_blank" rel="noreferrer" style={{ textDecoration:"none", background:`linear-gradient(135deg,${app.color},${app.color}bb)`, borderRadius:14, padding:"15px 0", display:"flex", alignItems:"center", justifyContent:"center", gap:10, cursor:"pointer" }}>
@@ -441,16 +443,16 @@ function ArrivalCard({ f, live, now }) {
     <div data-testid="arrival-card" style={{ background:C.card, borderRadius:20, border:`1px solid ${C.border}`, padding:16, marginBottom:14 }}>
       <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:12 }}>
         <StatIcon id="planeArrive" color={C.accent} size={18}/>
-        <div style={{ flex:1, fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:1.5 }}>ARRIVING {ap?.city?.toUpperCase()} · {f.iata}</div>
+        <div style={{ flex:1, fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:0.6, fontWeight:600 }}>ARRIVING {ap?.city?.toUpperCase()} · {f.iata}</div>
       </div>
       <div style={{ display:"flex", alignItems:"flex-end", gap:14, marginBottom:12 }}>
         <div style={{ flex:1 }}>
-          <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:1 }}>{cancelled?"BOOKED ARRIVAL":t.arrDelay>=5?"ESTIMATED ARRIVAL":"SCHEDULED ARRIVAL"}</div>
+          <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:0.6, fontWeight:600 }}>{cancelled?"BOOKED ARRIVAL":t.arrDelay>=5?"ESTIMATED ARRIVAL":"SCHEDULED ARRIVAL"}</div>
           <div style={{ fontFamily:C.display, fontSize:40, color:t.arrDelay>=5&&!cancelled?C.yellow:C.text, lineHeight:1.05 }}>{fmtClock(cancelled?t.schedArr:t.estArr, tz)}</div>
           <div style={{ fontSize:12, color:C.soft }}>{fmtDay(t.schedArr, tz)} · local {tzLabel(t.schedArr, tz)}</div>
         </div>
         <div style={{ textAlign:"right" }}>
-          <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:1 }}>LOCAL TIME NOW</div>
+          <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:0.6, fontWeight:600 }}>LOCAL TIME NOW</div>
           <div style={{ fontSize:20, fontWeight:800, color:C.text, fontFamily:C.mono }}>{fmtClock(now, tz)}</div>
         </div>
       </div>
@@ -466,7 +468,7 @@ function ArrivalCard({ f, live, now }) {
       <div style={{ display:"flex", gap:6 }}>
         {[["TERMINAL",arrTerminal],["GATE",arrGate],["BAG BELT",belt||"—"]].map(([l,v])=>(
           <div key={l} style={{ flex:1, background:C.surface, borderRadius:10, padding:"8px 6px", textAlign:"center", border:`1px solid ${C.border}` }}>
-            <div style={{ fontSize:9, color:C.muted, fontFamily:C.mono, letterSpacing:1 }}>{l}</div>
+            <div style={{ fontSize:9, color:C.muted, fontFamily:C.mono, letterSpacing:0.6, fontWeight:600 }}>{l}</div>
             <div style={{ fontSize:14, fontWeight:800, color:v==="—"||v==="TBD"?C.soft:C.text, fontFamily:C.mono }}>{v}</div>
           </div>
         ))}
@@ -521,7 +523,7 @@ function FlightDetailSheet({ f, live, liveMeta, now, onClose, onAlternates }) {
           <div onClick={onClose} style={{ fontSize:18, color:C.muted, cursor:"pointer" }}>✕</div>
         </div>
         <div style={{ background:C.card, borderRadius:14, border:`1px solid ${C.border}`, padding:"12px 14px", marginBottom:12 }}>
-          <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:1.5, marginBottom:8 }}>BOOKING VS LIVE</div>
+          <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:0.6, fontWeight:600, marginBottom:8 }}>BOOKING VS LIVE</div>
           {[["Departure", f.depTime, t.depDelay>=5?fmtClock(t.estDep, depTz):null],["Arrival", f.arrTime, t.arrDelay>=5?fmtClock(t.estArr, tzOf(f.arr)):null],["Gate", f.gate, live?.depGate],["Terminal", f.terminal, live?.depTerminal]].map(([l,b,lv])=>(
             <div key={l} style={{ display:"flex", padding:"6px 0", borderTop:`1px solid ${C.border}`, fontSize:13 }}>
               <span style={{ flex:1, color:C.soft }}>{l}</span>
@@ -546,7 +548,7 @@ function DemoClockChip({ clock, now }) {
   return (
     <div data-testid="demo-clock" title="The trip dates have passed, so the app replays the travel day on a simulated clock. Turn off in Settings." style={{ display:"flex", alignItems:"center", gap:8, background:tint("#ffc800",0.08), border:`1px solid ${tint("#ffc800",0.3)}`, borderRadius:10, padding:"7px 12px", margin:"10px 16px 0" }}>
       <StatIcon id="clock" color={C.yellow} size={14}/>
-      <span style={{ fontSize:10, color:C.yellow, fontFamily:C.mono, letterSpacing:1, fontWeight:700 }}>DEMO CLOCK</span>
+      <span style={{ fontSize:10, color:C.yellow, fontFamily:C.mono, letterSpacing:0.6, fontWeight:700 }}>DEMO CLOCK</span>
       <span style={{ fontSize:11, color:C.soft, flex:1 }}>{fmtDay(now, tz)}, {fmtClock(now, tz)} {airport(clock.airport)?.city} · replaying the travel day</span>
     </div>
   );
@@ -575,7 +577,7 @@ function Toasts() {
 function Sheet({ onClose, children, testid, label }) {
   return (
     <div className="mr-scrim" style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.5)", zIndex:60, display:"flex", flexDirection:"column", justifyContent:"flex-end" }} onClick={onClose}>
-      <div data-testid={testid} role="dialog" aria-modal="true" aria-label={label} className="mr-sheet mr-glass" onClick={e=>e.stopPropagation()} style={{ background:C.surface, borderTopLeftRadius:24, borderTopRightRadius:24, padding:"20px 20px 44px", border:`1px solid ${C.border}`, maxWidth:480, margin:"0 auto", width:"100%", maxHeight:"88vh", overflowY:"auto" }}>
+      <div data-testid={testid} role="dialog" aria-modal="true" aria-label={label} className="mr-sheet mr-glass" onClick={e=>e.stopPropagation()} style={{ background:C.glass, borderTopLeftRadius:28, borderTopRightRadius:28, padding:"10px 20px calc(28px + env(safe-area-inset-bottom))", border:`1px solid ${C.border}`, maxWidth:480, margin:"0 auto", width:"100%", maxHeight:"88vh", overflowY:"auto" }}>
         <div style={{ width:36, height:4, background:C.border, borderRadius:2, margin:"0 auto 18px" }}/>
         {children}
       </div>
@@ -586,7 +588,7 @@ function Sheet({ onClose, children, testid, label }) {
 function OverlayPage({ title, sub, onBack, children, testid }) {
   return (
     <div data-testid={testid} style={{ position:"fixed", inset:0, background:C.bg, zIndex:50, overflowY:"auto" }}>
-      <div style={{ background:C===DARK?"rgba(4,7,14,0.98)":"rgba(255,255,248,0.98)", borderBottom:`1px solid ${C.border}`, padding:"14px 16px", display:"flex", alignItems:"center", gap:10, position:"sticky", top:0, zIndex:2 }}>
+      <div style={{ background:C.glass, borderBottom:`1px solid ${C.border}`, padding:"14px 16px", display:"flex", alignItems:"center", gap:10, position:"sticky", top:0, zIndex:2 }}>
         <div data-testid="back" onClick={onBack} style={{ width:34, height:34, borderRadius:17, background:C.surface, border:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", fontSize:18, color:C.accent }}>←</div>
         <div style={{ flex:1 }}><div style={{ fontSize:16, fontWeight:800, color:C.text }}>{title}</div>{sub&&<div style={{ fontSize:12, color:C.soft }}>{sub}</div>}</div>
       </div>
@@ -744,7 +746,7 @@ function AirportStatusSheet({ faa, codes, onClose, onRetry }) {
 const pillBtn = (primary) => ({ flex:1, minHeight:48, borderRadius:14, border:primary?"none":`1px solid ${C.border}`, background:primary?C.accent:C.chip, color:primary?"#fff":C.text, fontSize:15, fontWeight:600, cursor:"pointer", font:"inherit", fontFamily:C.sans });
 
 const inputStyle = () => ({ width:"100%", background:C.card, border:`1.5px solid ${C.border}`, borderRadius:12, padding:"12px 14px", color:C.text, fontSize:14, outline:"none", boxSizing:"border-box", fontFamily:C.sans });
-const label = t => <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:1.5, marginBottom:6 }}>{t}</div>;
+const label = t => <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:0.6, fontWeight:600, marginBottom:6 }}>{t}</div>;
 
 // ── Add flight: honest. Manual entry from the booking; optional live check. ──
 function AddModal({ onClose, onAdd }) {
@@ -900,7 +902,7 @@ function WeatherScreen({ codes = ["MIA","TLV","ZRH"] }) {
               <div style={{ fontSize:14, color:C.soft, marginTop:6 }}>{w.label} · {Math.round((w.tempF-32)*5/9)}°C</div>
             </div>
             <div style={{ textAlign:"right" }}>
-              <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:1 }}>LOCAL TIME</div>
+              <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:0.6, fontWeight:600 }}>LOCAL TIME</div>
               <div style={{ fontSize:16, fontWeight:800, color:C.text, fontFamily:C.mono }}>{fmtClock(now, ap.tz)}</div>
             </div>
           </div>
@@ -908,13 +910,13 @@ function WeatherScreen({ codes = ["MIA","TLV","ZRH"] }) {
             {[["wind","WIND",`${w.windMph} mph`],["rain","HUMIDITY",`${w.humidity}%`],["clock","UPDATED","10 min"]].map(([i,l,val])=>(
               <div key={l} style={{ flex:1, background:C.surface, borderRadius:10, padding:"10px", border:`1px solid ${C.border}`, textAlign:"center" }}>
                 <div style={{ display:"flex", justifyContent:"center", marginBottom:4 }}><StatIcon id={i} color={C.soft} size={16}/></div>
-                <div style={{ fontSize:9, color:C.muted, fontFamily:C.mono, letterSpacing:1 }}>{l}</div>
+                <div style={{ fontSize:9, color:C.muted, fontFamily:C.mono, letterSpacing:0.6, fontWeight:600 }}>{l}</div>
                 <div style={{ fontSize:13, fontWeight:700, color:C.text }}>{val}</div>
               </div>
             ))}
           </div>
         </div>
-        <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10 }}>5-DAY FORECAST</div>
+        <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:0.6, fontWeight:600, marginBottom:10 }}>5-DAY FORECAST</div>
         <div style={{ background:C.card, borderRadius:16, border:`1px solid ${C.border}`, overflow:"hidden" }}>
           {w.daily.map((d,i)=>(
             <div key={d.date} style={{ display:"flex", alignItems:"center", gap:12, padding:"11px 14px", borderTop:i?`1px solid ${C.border}`:"none" }}>
@@ -970,11 +972,11 @@ function AirportIntelligenceScreen({ onBack }) {
 
 function ToolChips({ items }) {
   return (
-    <div style={{ display:"flex", gap:8, overflowX:"auto", padding:"2px 0 14px" }}>
+    <div style={{ display:"flex", gap:8, overflowX:"auto", padding:"4px 0 18px" }}>
       {items.map(([id,icon,text,fn])=>(
-        <div key={id} data-testid={`tool-${id}`} onClick={fn} style={{ flexShrink:0, display:"flex", alignItems:"center", gap:6, background:C.surface, border:`1px solid ${C.border}`, borderRadius:20, padding:"7px 12px", cursor:"pointer" }}>
-          <StatIcon id={icon} color={C.accent} size={14}/><span style={{ fontSize:12, color:C.soft, fontWeight:600, whiteSpace:"nowrap" }}>{text}</span>
-        </div>
+        <button type="button" className="mr-btn mr-glass" key={id} data-testid={`tool-${id}`} onClick={fn} style={{ flexShrink:0, minHeight:44, display:"flex", alignItems:"center", gap:7, background:C.chip, border:"none", borderRadius:22, padding:"0 16px", cursor:"pointer", font:"inherit" }}>
+          <StatIcon id={icon} color={C.accent} size={16}/><span style={{ fontSize:14, color:C.text, fontWeight:500, whiteSpace:"nowrap" }}>{text}</span>
+        </button>
       ))}
     </div>
   );
@@ -995,12 +997,12 @@ function FlightsScreen({ flights, getLive, getMeta, now, navIdx, homeAddress, st
   const checkinFlights = upcoming.filter(f => checkinWindow(f, now).state !== "closed").slice(0, 2);
   const totalKm = 22000;
   return (
-    <div style={{ padding:"14px 16px 110px" }}>
+    <div style={{ padding:"14px 16px 120px" }}>
       {liveStrip}
       <ToolChips items={[...tools.filter(t=>t[0]==="weather"||t[0]==="intel"), ["more","more","More",onMore]]}/>
       <WhatChangedBanner flights={upcoming} getLive={getLive}/>
       {next && <LeaveByCard f={next} live={getLive(next.id)} now={now} navIdx={navIdx} homeAddress={homeAddress} stayAddress={stayAddress} prefs={prefs} onEdit={onEditPrefs} warning={onwardCancelled ? `Your connection ${onwardCancelled.iata} is cancelled. Rebook it before you leave for the airport.` : null}/>}
-      <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, margin:"6px 0 10px" }}>{upcoming.length?"UPCOMING":"NO UPCOMING FLIGHTS"}</div>
+      <h2 style={{ fontSize:20, fontWeight:700, color:C.text, margin:"18px 2px 10px", letterSpacing:-0.3 }}>{upcoming.length?"Upcoming":"No upcoming flights"}</h2>
       {upcoming.map(f=>{
         const inbound = f.conn?.from && flights.find(x=>x.id===f.conn.from);
         return (
@@ -1016,7 +1018,7 @@ function FlightsScreen({ flights, getLive, getMeta, now, navIdx, homeAddress, st
         <StatIcon id="calendar" color={C.accent} size={18}/><span style={{ fontSize:13, fontWeight:700, color:C.text }}>Add trip to calendar (.ics with alerts)</span>
       </div>
       {done.length>0 && <>
-        <div onClick={()=>setShowDone(s=>!s)} style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, margin:"6px 0 10px", cursor:"pointer" }}>COMPLETED ({done.length}) {showDone?"▲":"▼"}</div>
+        <div onClick={()=>setShowDone(s=>!s)} style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:0.6, fontWeight:600, margin:"6px 0 10px", cursor:"pointer" }}>COMPLETED ({done.length}) {showDone?"▲":"▼"}</div>
         {showDone && done.map(f=><FlightCard key={f.id} f={f} live={getLive(f.id)} liveMeta={getMeta(f.id)} now={now} onTap={onTap} onInfo={onInfo}/>)}
       </>}
       <div style={{ display:"flex", alignItems:"center", gap:12, background:tint(C.green,0.06), border:`1px solid ${tint(C.green,0.2)}`, borderRadius:14, padding:"12px 14px", marginBottom:14 }}>
@@ -1043,7 +1045,7 @@ function SettingsModal({ onClose, isDark, setIsDark, homeAddress, setHomeAddress
         <div style={{ width:36, height:4, background:C.border, borderRadius:2, margin:"0 auto 18px" }}/>
         <div style={{ fontSize:20, fontWeight:800, color:C.text, marginBottom:20 }}>Settings</div>
         <div style={{ marginBottom:20 }}>
-          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10 }}>ACCOUNT TYPE</div>
+          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:0.6, fontWeight:600, marginBottom:10 }}>ACCOUNT TYPE</div>
           <div style={{ display:"flex", gap:8 }}>
             {[["personal","user","Personal"],["pro","star","Pro"],["corporate","building","Corporate"]].map(([id,icon,label])=>(
               <div key={id} onClick={()=>setAccountType(id)} style={{ flex:1, background:accountType===id?`${id==="corporate"?C.purple:C.accent}18`:C.card, border:`2px solid ${accountType===id?(id==="corporate"?C.purple:C.accent):C.border}`, borderRadius:12, padding:"12px 6px", textAlign:"center", cursor:"pointer" }}>
@@ -1054,7 +1056,7 @@ function SettingsModal({ onClose, isDark, setIsDark, homeAddress, setHomeAddress
           </div>
         </div>
         <div style={{ marginBottom:20 }}>
-          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10 }}>APPEARANCE</div>
+          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:0.6, fontWeight:600, marginBottom:10 }}>APPEARANCE</div>
           <div style={{ display:"flex", gap:8 }}>
             {[["moon","Dark Mode",true,"#04070e"],["sun","Light Mode",false,"#f0f4f8"]].map(([icon,label,dark,bg])=>(
               <div key={label} onClick={()=>setIsDark(dark)} style={{ flex:1, background:isDark===dark?`${C.accent}18`:C.card, border:`2px solid ${isDark===dark?C.accent:C.border}`, borderRadius:14, padding:"14px 10px", textAlign:"center", cursor:"pointer" }}>
@@ -1065,16 +1067,16 @@ function SettingsModal({ onClose, isDark, setIsDark, homeAddress, setHomeAddress
           </div>
         </div>
         <div style={{ marginBottom:20 }}>
-          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10 }}>HOME ADDRESS</div>
+          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:0.6, fontWeight:600, marginBottom:10 }}>HOME ADDRESS</div>
           <input value={addr} onChange={e=>setAddr(e.target.value)} placeholder="123 Main St, Miami, FL" style={{ width:"100%", background:C.card, border:`1.5px solid ${addr?C.accent+"60":C.border}`, borderRadius:12, padding:"13px 14px", color:C.text, fontSize:14, outline:"none", boxSizing:"border-box" }}/>
         </div>
         <div style={{ marginBottom:20 }}>
-          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10 }}>WHERE YOU'RE STAYING (AWAY FROM HOME)</div>
+          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:0.6, fontWeight:600, marginBottom:10 }}>WHERE YOU'RE STAYING (AWAY FROM HOME)</div>
           <input value={stay} onChange={e=>setStay(e.target.value)} placeholder="Hotel or family address, e.g. Ra'anana" style={{ width:"100%", background:C.card, border:`1.5px solid ${stay?C.accent+"60":C.border}`, borderRadius:12, padding:"13px 14px", color:C.text, fontSize:14, outline:"none", boxSizing:"border-box" }}/>
           <div style={{ fontSize:11, color:C.muted, marginTop:6 }}>Used for leave-by times when you fly home from somewhere else.</div>
         </div>
         <div style={{ marginBottom:20 }}>
-          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10 }}>LEAVE-BY PLANNING</div>
+          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:0.6, fontWeight:600, marginBottom:10 }}>LEAVE-BY PLANNING</div>
           <div style={{ display:"flex", gap:10, alignItems:"center", marginBottom:10 }}>
             <div style={{ flex:1, fontSize:13, color:C.text }}>Drive to the airport (minutes)</div>
             <input data-testid="drive-mins" inputMode="numeric" value={drive} onChange={e=>setDrive(e.target.value.replace(/\D/g,""))} style={{ width:70, background:C.card, border:`1.5px solid ${C.border}`, borderRadius:10, padding:"9px 10px", color:C.text, fontSize:14, textAlign:"center", fontFamily:C.mono }}/>
@@ -1085,7 +1087,7 @@ function SettingsModal({ onClose, isDark, setIsDark, homeAddress, setHomeAddress
           </div>
         </div>
         <div style={{ marginBottom:20 }}>
-          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10 }}>HOW YOU GET TO THE AIRPORT</div>
+          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:0.6, fontWeight:600, marginBottom:10 }}>HOW YOU GET TO THE AIRPORT</div>
           <div style={{ fontSize:10, color:C.muted, fontWeight:700, letterSpacing:1, marginBottom:7 }}>DRIVING</div>
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:12 }}>
             {NAV_APPS.map((a,i)=>a.mode==="drive"&&(
@@ -1106,7 +1108,7 @@ function SettingsModal({ onClose, isDark, setIsDark, homeAddress, setHomeAddress
           </div>
         </div>
         <div style={{ marginBottom:20 }}>
-          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10 }}>CANCELLATION ALERTS</div>
+          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:0.6, fontWeight:600, marginBottom:10 }}>CANCELLATION ALERTS</div>
           <div style={{ fontSize:12, color:C.soft, marginBottom:12, lineHeight:1.5 }}>How you'd like to be notified the moment a flight is cancelled — often before the airline tells you.</div>
           {[["sms","SMS Text Message","Instant text to your phone"],["email","Email","Full details + alternative flights"],["push","Push Notification","App notification on your device"]].map(([key,title,desc])=>(
             <div key={key} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 0", borderBottom:`1px solid ${C.border}` }}>
@@ -1121,7 +1123,7 @@ function SettingsModal({ onClose, isDark, setIsDark, homeAddress, setHomeAddress
           ))}
         </div>
         <div style={{ marginBottom:24 }}>
-          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10 }}>ALERT PREFERENCES</div>
+          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:0.6, fontWeight:600, marginBottom:10 }}>ALERT PREFERENCES</div>
           {[["delays","clock","Delay alerts"],["cancels","alert","Cancellation alerts"],["gates","door","Gate changes"],["boarding","plane","Boarding alerts"],["checkin","ticket","Check-in reminder"]].map(([key,icon,title])=>(
             <div key={key} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 0", borderBottom:`1px solid ${C.border}` }}>
               <StatIcon id={icon} color={C.soft} size={19}/>
@@ -1133,7 +1135,7 @@ function SettingsModal({ onClose, isDark, setIsDark, homeAddress, setHomeAddress
           ))}
         </div>
         <div style={{ marginBottom:20 }}>
-          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10 }}>PLAN & PRICING</div>
+          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:0.6, fontWeight:600, marginBottom:10 }}>PLAN & PRICING</div>
           <div data-testid="open-plans" onClick={onPlans} style={{ display:"flex", alignItems:"center", gap:12, background:C.card, border:`1px solid ${C.border}`, borderRadius:12, padding:"13px 14px", cursor:"pointer" }}>
             <StatIcon id="star" color={C.accent} size={18}/>
             <div style={{ flex:1 }}><div style={{ fontSize:13, fontWeight:700, color:C.text }}>{accountType==="personal"?"Free plan":accountType==="pro"?"Pro":"Corporate"}</div><div style={{ fontSize:11, color:C.muted }}>Compare Free, Pro and Corporate</div></div>
@@ -1141,7 +1143,7 @@ function SettingsModal({ onClose, isDark, setIsDark, homeAddress, setHomeAddress
           </div>
         </div>
         <div style={{ marginBottom:20 }}>
-          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:6 }}>WHAT WOULD YOU LIKE TO SEE NEXT?</div>
+          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:0.6, fontWeight:600, marginBottom:6 }}>WHAT WOULD YOU LIKE TO SEE NEXT?</div>
           {[["map","Live flight map"],["phone","SMS alerts"],["bag","Bag tracking"],["building","Hotel bookings"],["drive","Rental car"],["money","Points & miles"],["chat","AI trip assistant"],["globe","Offline mode"]].map(([icon,title])=>(
             <div key={title} style={{ display:"flex", alignItems:"center", gap:12, padding:"9px 0", borderBottom:`1px solid ${C.border}` }}>
               <StatIcon id={icon} color={C.soft} size={18}/>
@@ -1154,7 +1156,7 @@ function SettingsModal({ onClose, isDark, setIsDark, homeAddress, setHomeAddress
           ))}
         </div>
         <div style={{ marginBottom:24, background:tint("#ffc800",0.05), border:`1px solid ${tint("#ffc800",0.25)}`, borderRadius:14, padding:"14px" }}>
-          <div style={{ fontSize:11, color:C.yellow, fontFamily:C.mono, letterSpacing:2, marginBottom:10 }}>DEMO</div>
+          <div style={{ fontSize:11, color:C.yellow, fontFamily:C.mono, letterSpacing:0.6, fontWeight:600, marginBottom:10 }}>DEMO</div>
           <div style={{ display:"flex", gap:10, alignItems:"center", marginBottom:12 }}>
             <div style={{ flex:1 }}><div style={{ fontSize:13, color:C.text }}>Replay the travel day</div><div style={{ fontSize:11, color:C.muted }}>This trip's dates have passed. The demo clock starts before LY 347 leaves Tel Aviv.</div></div>
             <div data-testid="demo-toggle" onClick={()=>setDemoClock(d=>!d)} style={{ width:44, height:26, borderRadius:13, background:demoClock?C.yellow:"#2a3f5f", position:"relative", cursor:"pointer", flexShrink:0 }}><div style={{ width:20, height:20, borderRadius:10, background:"#fff", position:"absolute", top:3, left:demoClock?21:3, transition:"left 0.2s" }}/></div>
@@ -1353,7 +1355,7 @@ function CancellationScreen({ onBack, liveOn }) {
             </div>
           ))}
         </div>
-        <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:12 }}>EXAMPLES: HOW AN ALERT LOOKS</div>
+        <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:0.6, fontWeight:600, marginBottom:12 }}>EXAMPLES: HOW AN ALERT LOOKS</div>
         {history.map(c=>(
           <div key={c.id} style={{ background:C.card, borderRadius:16, border:"1px solid rgba(255,58,84,0.2)", padding:"14px 16px", marginBottom:12 }}>
             <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12 }}>
@@ -1419,7 +1421,7 @@ function PassportScreen() {
   return (
     <div style={{ padding:"14px 14px 100px" }}>
       <div style={{ background:"linear-gradient(135deg,rgba(0,200,240,0.1),rgba(255,92,43,0.06))", borderRadius:20, border:"1px solid rgba(0,200,240,0.2)", padding:"24px 18px", marginBottom:14, textAlign:"center" }}>
-        <div style={{ fontSize:11, color:C.soft, fontFamily:C.mono, letterSpacing:2, marginBottom:6 }}>LIFETIME MILES</div>
+        <div style={{ fontSize:11, color:C.soft, fontFamily:C.mono, letterSpacing:0.6, fontWeight:600, marginBottom:6 }}>LIFETIME MILES</div>
         <div style={{ fontFamily:C.display, fontSize:58, color:C.accent, letterSpacing:4, lineHeight:1, marginBottom:6 }}>{p.miles.toLocaleString()}</div>
         <div style={{ fontSize:14, color:C.soft, display:"inline-flex", alignItems:"center", gap:6, justifyContent:"center" }}>{Math.round(p.miles/24902)}× around the Earth <StatIcon id="globe" color={C.soft} size={15}/></div>
       </div>
@@ -1428,12 +1430,12 @@ function PassportScreen() {
           <div key={label} style={{ background:C.card, borderRadius:16, border:`1px solid ${C.border}`, padding:"18px", textAlign:"center" }}>
             <div style={{ display:"flex", justifyContent:"center", marginBottom:10 }}><StatIcon id={icon} color={C.accent} size={26}/></div>
             <div style={{ fontFamily:C.display, fontSize:36, color:C.text, lineHeight:1, marginBottom:4 }}>{val}</div>
-            <div style={{ fontSize:11, color:C.soft, fontFamily:C.mono, letterSpacing:1 }}>{label.toUpperCase()}</div>
+            <div style={{ fontSize:11, color:C.soft, fontFamily:C.mono, letterSpacing:0.6, fontWeight:600 }}>{label.toUpperCase()}</div>
           </div>
         ))}
       </div>
       <div style={{ background:C.card, borderRadius:16, border:`1px solid ${C.border}`, padding:"16px" }}>
-        <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:12 }}>ACHIEVEMENTS</div>
+        <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:0.6, fontWeight:600, marginBottom:12 }}>ACHIEVEMENTS</div>
         <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
           {p.badges.map(b=><div key={b} style={{ background:"rgba(167,139,250,0.1)", border:"1px solid rgba(167,139,250,0.25)", borderRadius:20, padding:"7px 14px", fontSize:13, color:C.purple, fontWeight:600 }}>{b.split(" ").slice(1).join(" ")}</div>)}
           {allBadges.slice(p.badges.length).map(b=><div key={b} style={{ display:"inline-flex", alignItems:"center", gap:6, background:C.surface, border:`1px solid ${C.border}`, borderRadius:20, padding:"7px 14px", fontSize:13, color:C.muted, opacity:0.5 }}><StatIcon id="lock" color={C.muted} size={12}/> {b.split(" ").slice(1).join(" ")}</div>)}
@@ -1453,7 +1455,7 @@ function WalletScreen() {
   const p = passes[active];
   return (
     <div style={{ padding:"14px 14px 100px" }}>
-      <div style={{ fontSize:13, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:12 }}>MOBILE BOARDING PASSES</div>
+      <div style={{ fontSize:13, color:C.muted, fontFamily:C.mono, letterSpacing:0.6, fontWeight:600, marginBottom:12 }}>MOBILE BOARDING PASSES</div>
       <div style={{ fontSize:11, color:C.soft, marginBottom:12, lineHeight:1.5, display:"flex", gap:6 }}><StatIcon id="info" color={C.soft} size={14}/><span>Sample passes (seats and barcode are placeholders, not valid for boarding). Real passes come from El Al and SWISS after check-in.</span></div>
       <div style={{ display:"flex", gap:8, marginBottom:16, overflowX:"auto" }}>
         {passes.map((pass,i)=>(<div key={pass.id} onClick={()=>setActive(i)} style={{ flexShrink:0, background:i===active?C.card:C.surface, border:`1px solid ${i===active?C.accent:C.border}`, borderRadius:10, padding:"8px 12px", cursor:"pointer" }}><div style={{ fontSize:12, fontWeight:800, color:i===active?C.accent:C.soft, fontFamily:C.mono }}>{pass.flight}</div><div style={{ fontSize:10, color:C.muted }}>{pass.dep}→{pass.arr}</div></div>))}
@@ -1499,7 +1501,7 @@ function LoungeScreen() {
   };
   return (
     <div style={{ padding:"14px 14px 100px" }}>
-      <div style={{ fontSize:9, color:C.muted, fontFamily:C.mono, letterSpacing:3, marginBottom:12, borderBottom:`1px solid ${C.border}`, paddingBottom:8 }}>VIP LOUNGE FINDER · LISTINGS ARE INDICATIVE, CHECK THE LOUNGE BEFORE YOU GO</div>
+      <div style={{ fontSize:9, color:C.muted, fontFamily:C.mono, letterSpacing:0.6, fontWeight:600, marginBottom:12, borderBottom:`1px solid ${C.border}`, paddingBottom:8 }}>VIP LOUNGE FINDER · LISTINGS ARE INDICATIVE, CHECK THE LOUNGE BEFORE YOU GO</div>
       <div style={{ display:"flex", gap:8, marginBottom:16 }}>
         {airports.map(a=>(<div key={a} onClick={()=>setAirport(a)} style={{ flex:1, background:a===airport?`linear-gradient(135deg,${C.accent},#007aaa)`:C.surface, border:`1px solid ${a===airport?C.accent:C.border}`, borderRadius:12, padding:"12px 0", textAlign:"center", cursor:"pointer" }}><div style={{ fontSize:18, fontWeight:800, color:a===airport?"#000":C.text, fontFamily:C.mono }}>{a}</div><div style={{ fontSize:9, color:a===airport?"#003355":C.muted }}>{a==="MIA"?"Miami":a==="TLV"?"Tel Aviv":"Zurich"}</div></div>))}
       </div>
@@ -1510,7 +1512,7 @@ function LoungeScreen() {
             <div style={{ flex:1 }}><div style={{ fontSize:15, fontWeight:800, color:C.text, marginBottom:2 }}>{l.name}</div><div style={{ fontSize:11, color:C.soft, display:"flex", alignItems:"center", gap:4 }}><StatIcon id="pin" color={C.soft} size={11}/>{l.terminal}</div></div>
             <div style={{ background:"rgba(0,232,122,0.1)", border:"1px solid rgba(0,232,122,0.25)", borderRadius:8, padding:"3px 8px", display:"flex", alignItems:"center", gap:3 }}><StatIcon id="star" color={C.green} size={12}/><span style={{ fontSize:11, color:C.green, fontWeight:700, fontFamily:C.mono }}>{l.rating}</span></div>
           </div>
-          <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:1, marginBottom:6 }}>ACCESS</div>
+          <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, letterSpacing:0.6, fontWeight:600, marginBottom:6 }}>ACCESS</div>
           <div style={{ display:"flex", flexWrap:"wrap", gap:5, marginBottom:12 }}>{l.access.map(([label,ok],j)=>(<span key={j} style={{ display:"inline-flex", alignItems:"center", gap:4, background:ok?"rgba(0,232,122,0.08)":C.surface, border:`1px solid ${ok?"rgba(0,232,122,0.25)":C.border}`, borderRadius:7, padding:"4px 9px", fontSize:11, color:ok?C.green:ok===false?C.muted:C.soft, textDecoration:ok===false?"line-through":"none" }}>{ok!==null&&<StatIcon id={ok?"check":"cross"} color={ok?C.green:C.muted} size={11}/>}{label}</span>))}</div>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", paddingTop:10, borderTop:`1px solid ${C.border}` }}><div style={{ fontSize:11, color:C.soft, display:"flex", alignItems:"center", gap:4 }}><StatIcon id="clock" color={C.soft} size={11}/>{l.hours}</div><div style={{ display:"flex", gap:5 }}>{l.amenities.slice(0,3).map((a,k)=>(<span key={k} style={{ fontSize:10, color:C.muted }}>{a}{k<2?" ·":""}</span>))}</div></div>
         </div>
@@ -1534,7 +1536,7 @@ function SeatTrackerScreen({ onBack }) {
         <div style={{ background:"rgba(0,232,122,0.1)", border:"1px solid rgba(0,232,122,0.25)", borderRadius:8, padding:"4px 10px", fontSize:10, fontWeight:700, color:C.green, fontFamily:C.mono }}>WATCHING</div>
       </div>
       <div style={{ padding:"16px 16px 100px" }}>
-        <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10 }}>YOUR CURRENT SEATS</div>
+        <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:0.6, fontWeight:600, marginBottom:10 }}>YOUR CURRENT SEATS</div>
         {flights.map(f=>(
           <div key={f.iata} style={{ background:C.card, borderRadius:14, border:`1px solid ${C.border}`, padding:"14px 16px", marginBottom:10 }}>
             <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
@@ -1543,7 +1545,7 @@ function SeatTrackerScreen({ onBack }) {
             </div>
           </div>
         ))}
-        <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10, marginTop:20 }}>WATCHING FOR BETTER SEATS</div>
+        <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:0.6, fontWeight:600, marginBottom:10, marginTop:20 }}>WATCHING FOR BETTER SEATS</div>
         {wishlist.map((s,i)=>(
           <div key={i} style={{ background:C.card, borderRadius:14, border:`1px solid ${s.available?"rgba(0,232,122,0.3)":C.border}`, padding:"14px 16px", marginBottom:10 }}>
             <div style={{ display:"flex", alignItems:"center", gap:12 }}>
@@ -1576,11 +1578,11 @@ function VintageIcon({ id, size=26, color="#7a9ab8" }) {
 function BottomNav({ active, onNav }) {
   const tabs = [{ id:"flights", label:"Flights" },{ id:"wallet", label:"Wallet" },{ id:"lounges", label:"Lounges" },{ id:"passport", label:"Passport" }];
   return (
-    <div data-testid="bottom-nav" style={{ position:"fixed", bottom:0, left:0, right:0, background:C===DARK?"rgba(4,7,14,0.98)":"rgba(255,255,248,0.98)", borderTop:`1px solid ${C.border}`, zIndex:20 }}>
-      <div style={{ display:"flex", padding:"8px 8px 22px", maxWidth:480, margin:"0 auto" }}>
-        {tabs.map(t=>(<div key={t.id} data-testid={`tab-${t.id}`} onClick={()=>onNav(t.id)} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:4, cursor:"pointer", padding:"6px 0" }}><VintageIcon id={t.id} size={24} color={active===t.id?C.accent:C.muted}/><span style={{ fontSize:9, fontWeight:700, fontFamily:C.mono, letterSpacing:1, color:active===t.id?C.accent:C.muted }}>{t.label.toUpperCase()}</span>{active===t.id&&<div style={{ width:20, height:2, borderRadius:1, background:C.accent }}/>}</div>))}
+    <nav data-testid="bottom-nav" aria-label="Main" className="mr-glass" style={{ position:"fixed", bottom:0, left:0, right:0, background:C.glass, borderTop:`0.5px solid ${C.border}`, zIndex:20 }}>
+      <div style={{ display:"flex", padding:"6px 8px calc(8px + env(safe-area-inset-bottom))", maxWidth:480, margin:"0 auto" }}>
+        {tabs.map(t=>(<button type="button" key={t.id} data-testid={`tab-${t.id}`} aria-current={active===t.id?"page":undefined} onClick={()=>onNav(t.id)} style={{ flex:1, minHeight:48, display:"flex", flexDirection:"column", alignItems:"center", gap:3, cursor:"pointer", padding:"4px 0", background:"none", border:"none", font:"inherit" }}><VintageIcon id={t.id} size={24} color={active===t.id?C.accent:C.muted}/><span style={{ fontSize:10, fontWeight:600, color:active===t.id?C.accent:C.muted }}>{t.label}</span></button>))}
       </div>
-    </div>
+    </nav>
   );
 }
 
@@ -1752,7 +1754,7 @@ function PlansScreen() {
     <div style={{ padding:"14px 14px 100px" }}>
       {tiers.map(t=>(
         <div key={t.id} style={{ background:t.bg, borderRadius:20, border:`2px solid ${t.border}`, padding:"20px 16px", marginBottom:16, position:"relative" }}>
-          {t.tag&&<div style={{ position:"absolute", top:-13, left:"50%", transform:"translateX(-50%)", background:t.color, borderRadius:20, padding:"4px 16px", fontSize:11, fontWeight:800, color:"#000", fontFamily:C.mono, letterSpacing:1, whiteSpace:"nowrap" }}>{t.tag}</div>}
+          {t.tag&&<div style={{ position:"absolute", top:-13, left:"50%", transform:"translateX(-50%)", background:t.color, borderRadius:20, padding:"4px 16px", fontSize:11, fontWeight:800, color:"#000", fontFamily:C.mono, letterSpacing:0.6, whiteSpace:"nowrap" }}>{t.tag}</div>}
           <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:16, marginTop:t.tag?8:0 }}>
             <div>
               <div style={{ fontSize:22, fontWeight:800, color:t.color, marginBottom:2 }}>{t.name}</div>
@@ -1817,11 +1819,11 @@ function CorporateSettings({ onBack }) {
       </div>
       <div style={{ padding:"20px 16px 100px" }}>
         <div style={{ marginBottom:20 }}>
-          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:8 }}>COMPANY NAME</div>
+          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:0.6, fontWeight:600, marginBottom:8 }}>COMPANY NAME</div>
           <input value={companyName} onChange={e=>setCompanyName(e.target.value)} style={{ width:"100%", background:C.card, border:`1px solid ${C.border}`, borderRadius:12, padding:"13px 14px", color:C.text, fontSize:14, outline:"none", boxSizing:"border-box" }}/>
         </div>
         <div style={{ marginBottom:20 }}>
-          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:8 }}>SPEND POLICY LIMITS</div>
+          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:0.6, fontWeight:600, marginBottom:8 }}>SPEND POLICY LIMITS</div>
           <div style={{ fontSize:12, color:C.soft, marginBottom:10 }}>Set max spend per employee per trip</div>
           {[["Economy flights max","$800"],["Business class max","$2,500"],["Hotel per night max","$250"],["Meal per diem","$75"]].map(([label,def])=>(
             <div key={label} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 0", borderBottom:`1px solid ${C.border}` }}>
@@ -1832,12 +1834,12 @@ function CorporateSettings({ onBack }) {
         </div>
 
         <div style={{ marginBottom:20 }}>
-          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:8 }}>MANAGER ALERT EMAIL</div>
+          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:0.6, fontWeight:600, marginBottom:8 }}>MANAGER ALERT EMAIL</div>
           <div style={{ fontSize:12, color:C.soft, marginBottom:8 }}>Flight alerts are sent to this address</div>
           <input value={managerEmail} onChange={e=>setManagerEmail(e.target.value)} style={{ width:"100%", background:C.card, border:`1px solid ${C.border}`, borderRadius:12, padding:"13px 14px", color:C.text, fontSize:14, outline:"none", boxSizing:"border-box" }}/>
         </div>
         <div style={{ marginBottom:24 }}>
-          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:12 }}>ALERT TYPES</div>
+          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:0.6, fontWeight:600, marginBottom:12 }}>ALERT TYPES</div>
           {[["alertDelays",alertDelays,setAlertDelays,"Flight Delays","Notify when an employee's flight is delayed"],
             ["alertCancels",alertCancels,setAlertCancels,"Cancellations","Immediate alert when a flight is cancelled"],
             ["alertGates",alertGates,setAlertGates,"Gate Changes","Notify when gate assignment changes"]].map(([key,val,setter,title,desc])=>(
@@ -1853,7 +1855,7 @@ function CorporateSettings({ onBack }) {
           ))}
         </div>
         <div style={{ marginBottom:20 }}>
-          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:12 }}>TEAM MANAGEMENT</div>
+          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:0.6, fontWeight:600, marginBottom:12 }}>TEAM MANAGEMENT</div>
           {[["email","Invite Team Members","Send invites via email"],["upload","Import from CSV","Bulk add employees with flight data"],["lock","SSO Configuration","Set up Google/Microsoft single sign-on"]].map(([icon,title,desc])=>(
             <div key={title} onClick={()=>notify(`${title}: Coming soon! This will be available in the Pro launch.`)} style={{ display:"flex", alignItems:"center", gap:12, padding:"13px 14px", background:C.card, borderRadius:12, border:`1px solid ${C.border}`, marginBottom:8, cursor:"pointer" }}>
               <span style={{ display:"flex", justifyContent:"center" }}><StatIcon id={icon} color={C.soft} size={20}/></span>
@@ -1943,7 +1945,7 @@ function CorporateDashboard({ onClose, corpRole="admin" }) {
         {/* Photo capture option */}
         {!editExp&&(
           <div style={{ marginBottom:20 }}>
-            <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10 }}>CAPTURE RECEIPT</div>
+            <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:0.6, fontWeight:600, marginBottom:10 }}>CAPTURE RECEIPT</div>
             <div style={{ display:"flex", gap:8 }}>
               <label style={{ flex:1, background:"rgba(0,200,240,0.07)", border:"1px solid rgba(0,200,240,0.25)", borderRadius:14, padding:"16px", textAlign:"center", cursor:"pointer", display:"block" }}>
                 <input type="file" accept="image/*" capture="environment" style={{ display:"none" }} onChange={e=>{ if(e.target.files[0]) notify("Photo captured!\n\nIn the live app, AI reads:\n• Merchant name\n• Amount\n• Date\n• Category\n\nAnd pre-fills the form below. Review and edit if needed."); }}/>
@@ -1972,7 +1974,7 @@ function CorporateDashboard({ onClose, corpRole="admin" }) {
           ["Notes (optional)", "note", "text", "e.g. Client lunch"],
         ].map(([label, key, type, ph])=>(
           <div key={key} style={{ marginBottom:16 }}>
-            <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:8 }}>{label.toUpperCase()}</div>
+            <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:0.6, fontWeight:600, marginBottom:8 }}>{label.toUpperCase()}</div>
             <input type={type} placeholder={ph} value={newExp[key]} onChange={e=>setNewExp(n=>({...n,[key]:e.target.value}))}
               style={{ width:"100%", background:C.card, border:`1.5px solid ${newExp[key]?C.accent+"60":C.border}`, borderRadius:12, padding:"13px 14px", color:C.text, fontSize:14, outline:"none", boxSizing:"border-box" }}/>
           </div>
@@ -1980,7 +1982,7 @@ function CorporateDashboard({ onClose, corpRole="admin" }) {
 
         {/* Category picker */}
         <div style={{ marginBottom:24 }}>
-          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10 }}>CATEGORY</div>
+          <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:0.6, fontWeight:600, marginBottom:10 }}>CATEGORY</div>
           <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
             {categories.map(cat=>(
               <div key={cat} onClick={()=>setNewExp(n=>({...n,category:cat}))} style={{ padding:"8px 14px", borderRadius:20, border:`1.5px solid ${newExp.category===cat?C.accent:C.border}`, background:newExp.category===cat?"rgba(0,200,240,0.1)":C.surface, cursor:"pointer", fontSize:12, fontWeight:700, color:newExp.category===cat?C.accent:C.soft }}>
@@ -2046,7 +2048,7 @@ function CorporateDashboard({ onClose, corpRole="admin" }) {
           {/* Employee expenses (admin view) */}
           {isAdmin&&(
             <div>
-              <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10 }}>EXPENSES</div>
+              <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:0.6, fontWeight:600, marginBottom:10 }}>EXPENSES</div>
               {expenses.filter(e=>e.emp===selEmp.name).map(exp=>(
                 <div key={exp.id} style={{ background:C.card, borderRadius:12, border:`1px solid ${C.border}`, padding:"12px 14px", marginBottom:8, display:"flex", alignItems:"center", gap:10 }}>
                   <span style={{ display:"flex" }}><StatIcon id={statusIcon[exp.status]} color={exp.status==="approved"?C.green:exp.status==="rejected"?C.red:C.soft} size={18}/></span>
@@ -2203,14 +2205,14 @@ function CorporateDashboard({ onClose, corpRole="admin" }) {
             /* Employee: see own flight + team if enabled */
             <div>
               <div style={{ background:"rgba(0,200,240,0.06)", border:"1px solid rgba(0,200,240,0.2)", borderRadius:14, padding:"14px 16px", marginBottom:14 }}>
-                <div style={{ fontSize:12, color:C.muted, fontFamily:C.mono, letterSpacing:1, marginBottom:6 }}>MY UPCOMING FLIGHT</div>
+                <div style={{ fontSize:12, color:C.muted, fontFamily:C.mono, letterSpacing:0.6, fontWeight:600, marginBottom:6 }}>MY UPCOMING FLIGHT</div>
                 <div style={{ fontSize:18, fontWeight:800, color:C.text, fontFamily:C.mono }}>LY 018 · MIA → TLV</div>
                 <div style={{ fontSize:13, color:C.soft }}>Sun Jun 14 · 2:30 PM · Gate TBD</div>
                 <StatusPill status="Scheduled"/>
               </div>
               {teamVisible ? (
                 <div>
-                  <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:2, marginBottom:10 }}>YOUR TEAM</div>
+                  <div style={{ fontSize:11, color:C.muted, fontFamily:C.mono, letterSpacing:0.6, fontWeight:600, marginBottom:10 }}>YOUR TEAM</div>
                   {EMPLOYEES.slice(0,3).map(emp=>{ return (
                     <div key={emp.id} style={{ background:C.card, borderRadius:14, border:`1px solid ${C.border}`, padding:"12px 14px", marginBottom:8, display:"flex", alignItems:"center", gap:10 }}>
                       <div style={{ width:36, height:36, borderRadius:18, background:`${emp.color}18`, border:`2px solid ${emp.color}60`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:800, color:emp.color, fontFamily:C.mono }}>{emp.avatar}</div>
@@ -2411,36 +2413,48 @@ export default function MyRunway() {
     notify(`Exported ${flights.length} flights as ${kind.toUpperCase()}`);
   }
   const titles = { flights:[accountType==="corporate"?"Team Flights":"My Flights",`${TRIP.name} · ${TRIP.range}`], wallet:["Boarding Passes","Hold your passes, works offline"], lounges:["Airport Lounges","Find lounges & access rules"], passport:["My Passport","Your lifetime flying history"] };
-  const iconBtn = { background:"rgba(255,255,255,0.05)", border:`1px solid ${C.border}`, borderRadius:8, padding:"7px", cursor:"pointer", display:"flex", position:"relative" };
+  const iconBtn = { background:"transparent", border:"1px solid transparent", borderRadius:22, width:44, height:44, alignItems:"center", justifyContent:"center", cursor:"pointer", display:"flex", position:"relative" };
 
   return (
     <div style={{ background:C.bg, minHeight:"100vh", display:"flex", flexDirection:"column", fontFamily:C.sans, maxWidth:480, margin:"0 auto", position:"relative", color:C.text }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400;1,700&display=swap');
         ::-webkit-scrollbar{display:none}
         *{box-sizing:border-box}
-        body{background:${C.bg}}
-        @keyframes cardIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+        html,body{background:${C.bg}}
+        body{font-family:${SF};-webkit-font-smoothing:antialiased;font-feature-settings:"tnum";color-scheme:${isDark?"dark":"light"}}
+        body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;background:${isDark?"radial-gradient(120% 60% at 50% -10%, rgba(10,132,255,0.18), transparent 60%)":"radial-gradient(120% 60% at 50% -10%, rgba(0,102,204,0.10), transparent 60%)"}}
+        .mr-glass{-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%)}
+        .mr-card{box-shadow:0 1px 0 rgba(255,255,255,${isDark?0.04:0.6}) inset, 0 10px 30px rgba(0,0,0,${isDark?0.35:0.08})}
+        .mr-btn{transition:transform .35s cubic-bezier(.34,1.56,.64,1), opacity .2s}
+        .mr-btn:active{transform:scale(.96);opacity:.85}
+        .mr-sheet{animation:sheetUp .45s cubic-bezier(.32,1.25,.6,1)}
+        .mr-scrim{animation:fadeIn .25s ease}
+        :focus-visible{outline:2px solid ${C.accent} !important;outline-offset:2px}
+        input:focus-visible{outline-offset:0}
+        @keyframes cardIn{from{opacity:0;transform:translateY(10px) scale(.985)}to{opacity:1;transform:none}}
+        @keyframes sheetUp{from{transform:translateY(100%)}to{transform:none}}
+        @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+        @media (prefers-reduced-motion: reduce){*,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important}}
         @media (max-width:420px){ .mr-dev{display:none} }
         @media (max-width:400px){ .mr-addlabel{display:none} }
       `}</style>
-      <div style={{ background:isDark?"rgba(4,7,14,0.98)":"rgba(255,255,248,0.98)", borderBottom:`1px solid ${C.border}`, padding:"10px 14px", display:"flex", alignItems:"center", justifyContent:"space-between", position:"sticky", top:0, zIndex:10, gap:8 }}>
+      <div className="mr-glass" style={{ background:C.glass, borderBottom:`0.5px solid ${C.border}`, padding:"6px 12px", display:"flex", alignItems:"center", justifyContent:"space-between", position:"sticky", top:0, zIndex:10, gap:8 }}>
         <div style={{ display:"flex", alignItems:"center", gap:8, minWidth:0, overflow:"hidden" }}>
           <MyRunwayBadge variant="icon" size={34} color={C.accent}/>
-          <span style={{ fontFamily:C.display, fontSize:17, color:C.accent, letterSpacing:2, fontStyle:"italic", whiteSpace:"nowrap" }}>My Runway</span>
-          {DEV_MODE&&<div className="mr-dev" style={{ background:"rgba(255,200,0,0.15)", border:"1px solid rgba(255,200,0,0.4)", borderRadius:5, padding:"1px 5px", fontSize:8, fontWeight:800, color:C.yellow, fontFamily:C.mono, letterSpacing:1, flexShrink:0 }}>DEV</div>}
+          <span className={accountType==="corporate"?"mr-addlabel":undefined} style={{ fontFamily:C.display, fontSize:17, fontWeight:600, color:C.text, letterSpacing:-0.2, whiteSpace:"nowrap" }}>My Runway</span>
+          {DEV_MODE&&<div className="mr-dev" style={{ background:"rgba(255,200,0,0.15)", border:"1px solid rgba(255,200,0,0.4)", borderRadius:5, padding:"1px 5px", fontSize:8, fontWeight:800, color:C.yellow, fontFamily:C.mono, letterSpacing:0.6, flexShrink:0 }}>DEV</div>}
         </div>
         <div style={{ display:"flex", gap:5, alignItems:"center", flexShrink:0 }}>
           {accountType==="corporate"&&<div onClick={()=>setOverlay("corp")} title="Corporate" style={{ ...iconBtn, background:"rgba(167,139,250,0.1)", border:"1px solid rgba(167,139,250,0.3)" }}><StatIcon id="building" color={C.purple} size={16}/></div>}
-          <div data-testid="btn-share" onClick={()=>setOverlay("share")} title="Share" style={{ ...iconBtn, background:"rgba(0,200,240,0.07)", border:"1px solid rgba(0,200,240,0.2)" }}><StatIcon id="share" color={C.accent} size={16}/></div>
-          <div data-testid="btn-bell" onClick={()=>setOverlay("cancellations")} title="Cancellation alerts" style={{ ...iconBtn, background:hasCancellation?"rgba(255,58,84,0.08)":iconBtn.background, border:`1px solid ${hasCancellation?"rgba(255,58,84,0.25)":C.border}` }}>
-            <StatIcon id="bell" color={hasCancellation?C.red:C.soft} size={16}/>
-            {hasCancellation&&<div style={{ position:"absolute", top:-2, right:-2, width:7, height:7, borderRadius:4, background:C.red, border:"1.5px solid #04070e" }}/>}
+          <div data-testid="btn-share" onClick={()=>setOverlay("share")} title="Share" role="button" tabIndex={0} aria-label="Share" style={iconBtn}><StatIcon id="share" color={C.accent} size={20}/></div>
+          <div data-testid="btn-bell" onClick={()=>setOverlay("cancellations")} title="Cancellation alerts" role="button" tabIndex={0} aria-label="Cancellation alerts" style={iconBtn}>
+            <StatIcon id="bell" color={hasCancellation?C.red:C.accent} size={20}/>
+            {hasCancellation&&<div style={{ position:"absolute", top:9, right:9, width:7, height:7, borderRadius:4, background:C.red, border:"1.5px solid #04070e" }}/>}
           </div>
-          <div data-testid="btn-settings" onClick={()=>setOverlay("settings")} title="Settings" style={iconBtn}><StatIcon id="gear" color={C.soft} size={16}/></div>
-          <div data-testid="btn-add" onClick={()=>setOverlay("add")} style={{ background:`linear-gradient(135deg,${C.accent},#007aaa)`, borderRadius:8, padding:"7px 10px", cursor:"pointer", display:"flex", alignItems:"center", gap:4 }}>
-            <span style={{ fontSize:13, color:"#000", fontWeight:900, lineHeight:1 }}>+</span>
-            <span className="mr-addlabel" style={{ fontSize:11, color:"#000", fontWeight:800, fontFamily:C.mono, letterSpacing:0.5 }}>FLIGHT</span>
+          <div data-testid="btn-settings" onClick={()=>setOverlay("settings")} title="Settings" role="button" tabIndex={0} aria-label="Settings" style={iconBtn}><StatIcon id="gear" color={C.accent} size={20}/></div>
+          <div data-testid="btn-add" className="mr-btn" role="button" tabIndex={0} aria-label="Add flight" onClick={()=>setOverlay("add")} style={{ background:C.accent, borderRadius:22, height:36, minWidth:36, padding:"0 12px", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:4, margin:"4px 0 4px 4px" }}>
+            <span style={{ fontSize:18, color:"#fff", fontWeight:600, lineHeight:1 }}>+</span>
+            <span className="mr-addlabel" style={{ fontSize:14, color:"#fff", fontWeight:600 }}>Flight</span>
           </div>
         </div>
       </div>
@@ -2453,8 +2467,8 @@ export default function MyRunway() {
       )}
       <DemoClockChip clock={clock} now={now}/>
       <div style={{ padding:"16px 16px 0" }}>
-        <div style={{ fontFamily:C.display, fontSize:24, fontWeight:400, fontStyle:"italic", color:C.text, marginBottom:3, letterSpacing:0.5 }}>{titles[tab][0]}</div>
-        <div style={{ fontSize:12, color:C.soft, fontFamily:C.mono, letterSpacing:2, textTransform:"uppercase" }}>{titles[tab][1]}</div>
+        <h1 style={{ fontFamily:C.display, fontSize:34, fontWeight:700, color:C.text, margin:"6px 0 2px", letterSpacing:-0.6 }}>{titles[tab][0]}</h1>
+        <div style={{ fontSize:15, color:C.muted }}>{titles[tab][1]}</div>
       </div>
       <div style={{ flex:1 }}>
         {tab==="flights"&&<FlightsScreen flights={flights} getLive={getLive} getMeta={getMeta} now={now} navIdx={navIdx} homeAddress={homeAddress} stayAddress={stayAddress} prefs={prefs} withKids={withKids}

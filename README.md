@@ -53,5 +53,13 @@ and exits non-zero on any console error/warning or page error.
 4. Optional: turn off the demo clock (Settings → Demo) or remove `DEMO_ANCHOR`
    in `src/App.jsx` once there's a real upcoming trip.
 
+## Free extras (no keys, no paid APIs)
+
+- **Late-plane alert** (`src/lib/lateInbound.js`): flight card warns when the inbound aircraft lands too late for a normal turn (40 min narrowbody / 75 min widebody).
+- **EU261 estimate** (`src/lib/eu261.js`): chip on delayed (3h+) or cancelled EU/UK-covered flights. Estimate only, not legal advice.
+- **US customs reminder**: chip on US international arrivals linking CBP Mobile Passport Control.
+- **Can I bring this?** (`src/lib/travelInfo.js`) and **data export** (JSON/CSV) in the More sheet.
+- **US airport status**: `/api/faa` proxies the FAA NAS status feed (XML, no key) and `src/lib/faaStatus.js` parses it.
+
 Weather uses Open-Meteo (no key). Git author in this repo is a local placeholder
 (`asaf@myrunway.local`) — amend before pushing if you want your real identity.
