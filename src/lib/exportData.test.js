@@ -30,3 +30,15 @@ describe("csv", () => {
     expect(j.flights[0]).toEqual({ id: "f1", live: null }); expect(j.exportedAt).toBe("2026-01-01T00:00:00.000Z");
   });
 });
+
+describe("cancellation-announced export", () => {
+  it("includes cancelNoticeDate in CSV and JSON", () => {
+    const f = { id: "f9", iata: "LX 18", dep: "ZRH", arr: "MIA", depDate: "2026-07-02", cancelNoticeDate: "2026-06-25" };
+    const csv = buildTripsCsv([f, { id: "f8" }]);
+    const [head, row, row2] = csv.trim().split("\r\n");
+    expect(head.split(",").at(-1)).toBe("cancelNoticeDate");
+    expect(row.split(",").at(-1)).toBe("2026-06-25");
+    expect(row2.split(",").at(-1)).toBe("");
+    expect(JSON.parse(buildTripsJson([f])).flights[0].cancelNoticeDate).toBe("2026-06-25");
+  });
+});

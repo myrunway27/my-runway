@@ -1,6 +1,6 @@
 // Data export: trips as JSON or CSV, downloaded with a Blob (no server).
 
-export const CSV_COLUMNS = ["id", "flight", "airline", "from", "to", "depDate", "depTime", "arrDate", "arrTime", "aircraft", "terminal", "gate", "confirmation", "trip", "liveStatus", "depDelayMins", "arrDelayMins"];
+export const CSV_COLUMNS = ["id", "flight", "airline", "from", "to", "depDate", "depTime", "arrDate", "arrTime", "aircraft", "terminal", "gate", "confirmation", "trip", "liveStatus", "depDelayMins", "arrDelayMins", "cancelNoticeDate"];
 
 /** RFC 4180 cell: quote if it has a comma, quote, CR or LF; double inner quotes. Neutralise spreadsheet formulas. */
 export function csvCell(v) {
@@ -22,6 +22,7 @@ export function flightRow(f, live) {
     depDate: f.depDate, depTime: f.depTime, arrDate: f.arrDate || f.depDate, arrTime: f.arrTime,
     aircraft: f.aircraft, terminal: f.terminal, gate: f.gate, confirmation: f.conf, trip: f.trip,
     liveStatus: live?.status || "", depDelayMins: live?.depDelayMins ?? "", arrDelayMins: live?.arrDelayMins ?? "",
+    cancelNoticeDate: f.cancelNoticeDate || "",
   };
 }
 

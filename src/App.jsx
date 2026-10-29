@@ -10,7 +10,7 @@ import { fetchLive, mockLive, verifyFlight, MOCK_SCENARIOS } from "./lib/liveDat
 import { fetchAirportWeather, fetchWeatherAt } from "./lib/weather.js";
 import { buildTripIcs, downloadText } from "./lib/ics.js";
 import { lateInbound } from "./lib/lateInbound.js";
-import { eu261Estimate, fmtComp } from "./lib/eu261.js";
+import { eu261Estimate, fmtComp, noticeDaysBetween } from "./lib/eu261.js";
 import { fetchFaaStatus, statusFor, describe as describeFaa } from "./lib/faaStatus.js";
 import { isUsInternationalArrival, CBP_MPC_URL, TSA_WHAT_CAN_I_BRING_URL, searchItems } from "./lib/travelInfo.js";
 import { buildTripsCsv, buildTripsJson, downloadBlob } from "./lib/exportData.js";
@@ -335,7 +335,7 @@ function FlightCard({ f, live, liveMeta, now, onTap, onInfo, extraChips = [] }) 
       {(()=>{
         const list = [];
         if (t.cancelled || t.arrDelay >= 180) {
-          const e = eu261Estimate({ dep:f.dep, arr:f.arr, carrier:f.code, arrDelayMins:t.arrDelay, cancelled:t.cancelled });
+          const e = eu261Estimate({ dep:f.dep, arr:f.arr, carrier:f.code, arrDelayMins:t.arrDelay, cancelled:t.cancelled, noticeDays: f.cancelNoticeDate ? noticeDaysBetween(f.cancelNoticeDate, f.depDate) : null });
           if (e.covered && e.eligible !== false) list.push({ id:"comp", icon:"money", tone:C.green, text: e.amount ? `Compensation · up to ${fmtComp(e.amount,e.currency)}` : "Compensation may be owed", data:e });
         }
         if (!t.cancelled && phase !== "completed" && isUsInternationalArrival(f)) list.push({ id:"customs", icon:"door", tone:C.accent, text:"Customs: set up MPC" });
@@ -509,7 +509,7 @@ function CheckinCard({ f, now, onCalendar }) {
 }
 
 // ── Flight detail sheet (tap a card) ──
-function FlightDetailSheet({ f, live, liveMeta, now, onClose, onAlternates }) {
+function FlightDetailSheet({ f, live, liveMeta, now, onClose, onAlternates, onEdit }) {
   const changes = diffBookingVsLive(f, live);
   const t = liveTimes(f, live);
   const depTz = tzOf(f.dep);
@@ -535,9 +535,25 @@ function FlightDetailSheet({ f, live, liveMeta, now, onClose, onAlternates }) {
           {!changes.length && <div style={{ fontSize:11, color:C.muted, marginTop:6 }}>{live?"No changes from your booking.":"No live data yet. Showing your booking."}</div>}
         </div>
         <ArrivalCard f={f} live={live} now={now}/>
+        {onEdit && <CancelNoticeField value={f.cancelNoticeDate||""} depDate={f.depDate} onChange={v=>onEdit({ cancelNoticeDate: v || undefined })}/>}
         {t.cancelled && <div onClick={onAlternates} style={{ background:`linear-gradient(135deg,${C.red},#cc0022)`, borderRadius:12, padding:"13px 0", textAlign:"center", color:"#fff", fontWeight:800, cursor:"pointer", marginBottom:12 }}>Find Alternatives →</div>}
         {DEV_MODE && liveMeta && <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono }}>source: {liveMeta.mock?"mock":liveMeta.configured?"proxy":"booking only"}</div>}
       </div>
+    </div>
+  );
+}
+
+/** Optional "cancellation announced" date: makes the EU261/UK261 14-day rule exact. */
+function CancelNoticeField({ value, depDate, onChange }) {
+  const days = value && depDate ? noticeDaysBetween(value, depDate) : null;
+  return (
+    <div style={{ background:C.card, borderRadius:14, border:`1px solid ${C.border}`, padding:"12px 14px", marginBottom:12 }}>
+      <label htmlFor="cancel-notice" style={{ display:"block" }}>{label("CANCELLATION ANNOUNCED (OPTIONAL)")}</label>
+      <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+        <input id="cancel-notice" data-testid="cancel-notice" type="date" value={value} max={depDate} onChange={e=>onChange(e.target.value)} style={{ ...inputStyle(), minHeight:44 }}/>
+        {value && <button type="button" className="mr-btn" aria-label="Clear cancellation date" onClick={()=>onChange("")} style={{ ...pillBtn(), flex:"0 0 auto", padding:"0 14px" }}>Clear</button>}
+      </div>
+      <div style={{ fontSize:12, color:C.soft, marginTop:6, lineHeight:1.4 }}>{days===null ? "Only if the airline cancelled. Used for the 14-day notice rule in compensation estimates." : `${days} day${days===1?"":"s"} before departure: ${days<14?"under 14 days, compensation can apply":"14+ days, no compensation for the cancellation"}.`}</div>
     </div>
   );
 }
@@ -750,7 +766,7 @@ const label = t => <div style={{ fontSize:10, color:C.muted, fontFamily:C.mono, 
 
 // ── Add flight: honest. Manual entry from the booking; optional live check. ──
 function AddModal({ onClose, onAdd }) {
-  const [v, setV] = useState({ iata:"", date:"", dep:"", arr:"", depTime:"", arrTime:"", arrDate:"" });
+  const [v, setV] = useState({ iata:"", date:"", dep:"", arr:"", depTime:"", arrTime:"", arrDate:"", cancelNoticeDate:"" });
   const [check, setCheck] = useState(null);
   const [busy, setBusy] = useState(false);
   const set = (k, x) => { setV(o => ({ ...o, [k]: x })); setCheck(null); };
@@ -771,6 +787,7 @@ function AddModal({ onClose, onAdd }) {
       depTime:v.depTime.toUpperCase().replace(/(\d)(AM|PM)/,"$1 $2"), arrTime:v.arrTime.toUpperCase().replace(/(\d)(AM|PM)/,"$1 $2"),
       status:"Scheduled", gate:"TBD", terminal:"TBD", aircraft:"Aircraft TBD",
       date:d.toLocaleDateString("en-US",{ weekday:"short", month:"short", day:"numeric", year:"numeric", timeZone:"UTC" }), conf:"", trip:"added", conn:null,
+      ...(v.cancelNoticeDate ? { cancelNoticeDate:v.cancelNoticeDate } : {}),
     });
     notify(`${m[1]} ${m[2]} added`);
     onClose();
@@ -788,6 +805,7 @@ function AddModal({ onClose, onAdd }) {
         <div>{label("ARRIVES (LOCAL)")}<input value={v.arrTime} onChange={e=>set("arrTime",e.target.value)} placeholder="11:20 AM" style={inputStyle()}/></div>
       </div>
       <div style={{ marginBottom:14 }}>{label("ARRIVAL DATE (IF DIFFERENT)")}<input type="date" value={v.arrDate} onChange={e=>set("arrDate",e.target.value)} style={inputStyle()}/></div>
+      <div style={{ marginBottom:14 }}>{label("CANCELLATION ANNOUNCED (OPTIONAL)")}<input data-testid="add-cancel-notice" aria-label="Cancellation announced date (optional)" type="date" value={v.cancelNoticeDate} onChange={e=>set("cancelNoticeDate",e.target.value)} style={inputStyle()}/></div>
       {check && (
         <div data-testid="add-check" style={{ fontSize:12, borderRadius:10, padding:"10px 12px", marginBottom:12, background:C.card, border:`1px solid ${C.border}`, color:check.found?C.green:check.configured?C.yellow:C.soft }}>
           {!check.configured ? "Live lookup is off (no API key configured). You can still add the flight from your booking."
@@ -2344,6 +2362,8 @@ export default function MyRunway() {
   const [demoClock, setDemoClock] = usePersistentState("demoClock", true);
   const [savedScenario, setScenario] = usePersistentState("scenario", "off");
   const [userFlights, setUserFlights] = usePersistentState("userFlights", []);
+  // Per-flight edits to booked flights (e.g. cancellation-announced date), stored with the trip.
+  const [flightEdits, setFlightEdits] = usePersistentState("flightEdits", {});
   const [cancelDismissed, setCancelDismissed] = useState(false);
   const [liveState, setLiveState] = useState({});
   const [alternatesFor, setAlternatesFor] = useState(null);
@@ -2357,7 +2377,12 @@ export default function MyRunway() {
   // Theme is a module-level palette read by every component (kept from the original single-file design)
   C = isDark ? DARK : LIGHT;
 
-  const flights = useMemo(() => [...FLIGHTS, ...userFlights].sort((a,b)=>schedule(a).dep - schedule(b).dep), [userFlights]);
+  const flights = useMemo(() => [...FLIGHTS, ...userFlights].map(f => flightEdits[f.id] ? { ...f, ...flightEdits[f.id] } : f).sort((a,b)=>schedule(a).dep - schedule(b).dep), [userFlights, flightEdits]);
+  const editFlight = (id, patch) => {
+    const apply = o => { const n = { ...o, ...patch }; for (const k of Object.keys(n)) if (n[k] === undefined) delete n[k]; return n; };
+    if (userFlights.some(f => f.id === id)) setUserFlights(xs => xs.map(f => f.id === id ? apply(f) : f));
+    else setFlightEdits(m => ({ ...m, [id]: apply(m[id] || {}) }));
+  };
 
   // Live overlay: our own /api/flight proxy (keys stay server-side). Re-check every 5 min.
   useEffect(() => {
@@ -2479,7 +2504,7 @@ export default function MyRunway() {
         {tab==="passport"&&<PassportScreen/>}
       </div>
       <BottomNav active={tab} onNav={t=>{ setTab(t); window.scrollTo(0,0); }}/>
-      {detail&&<FlightDetailSheet f={detail} live={getLive(detail.id)} liveMeta={getMeta(detail.id)} now={now} onClose={()=>setDetail(null)} onAlternates={()=>{ setAlternatesFor(detail); setDetail(null); setOverlay("alternates"); }}/>}
+      {detail&&<FlightDetailSheet f={flights.find(x=>x.id===detail.id)||detail} onEdit={p=>editFlight(detail.id,p)} live={getLive(detail.id)} liveMeta={getMeta(detail.id)} now={now} onClose={()=>setDetail(null)} onAlternates={()=>{ setAlternatesFor(detail); setDetail(null); setOverlay("alternates"); }}/>}
       {overlay==="add"&&<AddModal onClose={close} onAdd={f=>setUserFlights(x=>[...x, f])}/>}
       {overlay==="share"&&<ShareModal onClose={close} flight={nextFlight} live={nextFlight?getLive(nextFlight.id):null} now={now}/>}
       {overlay==="settings"&&<SettingsModal onClose={close} isDark={isDark} setIsDark={setIsDark} homeAddress={homeAddress} setHomeAddress={setHomeAddress} stayAddress={stayAddress} setStayAddress={setStayAddress} prefs={prefs} setPrefs={setPrefs} withKids={withKids} setWithKids={setWithKids} accountType={accountType} setAccountType={setAccountType} navIdx={navIdx} setNavIdx={setNavIdx} demoClock={demoClock} setDemoClock={setDemoClock} scenario={savedScenario} setScenario={s=>{ setScenario(s); setCancelDismissed(false); }} onPlans={()=>setOverlay("plans")}/>}
