@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { parseFaaStatus, statusFor, toMinutes, describe as describeEv , notamWindow, isRoutineClosure, appliesToFlight, relevantEvents } from "./faaStatus.js";
-import handler from "../../api/faa.js";
+import handler, { limiter as faaLimiter } from "../../api/faa.js";
 const fx = n => readFileSync(new URL(`./__fixtures__/${n}`, import.meta.url), "utf8");
 
 describe("FAA NAS status parser", () => {
@@ -39,6 +39,17 @@ describe("api/faa", () => {
     const res = mockRes();
     await handler({ url: "/api/faa" }, res, { fetchImpl: async () => ({ ok: true, text: async () => fx("faa-mixed.xml") }) });
     expect(res.body.ok).toBe(true); expect(res.body.airports.MIA[0].type).toBe("ground_stop");
+    expect(res.headers["Cache-Control"]).toMatch(/s-maxage=60\b/);
+  });
+  it("blocks foreign origins and rate-limits at 60/min per IP", async () => {
+    const res = mockRes();
+    await handler({ url: "/api/faa", headers: { origin: "https://evil.example" } }, res);
+    expect(res.statusCode).toBe(403);
+    faaLimiter.reset();
+    let last;
+    for (let i = 0; i < 61; i++) { last = mockRes(); await handler({ url: "/api/faa", headers: { "x-forwarded-for": "192.0.2.1" } }, last, { fetchImpl: async () => ({ ok: true, text: async () => fx("faa-mixed.xml") }) }); }
+    expect(last.statusCode).toBe(429); expect(Number(last.headers["Retry-After"])).toBeGreaterThan(0);
+    faaLimiter.reset();
   });
 });
 

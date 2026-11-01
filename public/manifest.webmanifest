@@ -8,6 +8,17 @@
   "background_color": "#04070e",
   "theme_color": "#04070e",
   "icons": [
-    { "src": "/myrunway_icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+    {
+      "src": "/myrunway_icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    }
   ]
 }

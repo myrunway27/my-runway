@@ -9,11 +9,13 @@
 // Golden rule: this endpoint only returns a day-of overlay (status / gate / delay / estimates).
 // It never returns "the schedule" for the client to overwrite booked times with.
 
+import { createRateLimiter, guard, validateFlightQuery } from "./_guard.js";
+
 const CACHE = new Map(); // warm-instance cache
 const TTL_MS = 5 * 60 * 1000;
 
-const IDENT_RE = /^[A-Z0-9]{2}\d{1,4}[A-Z]?$/;
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+// 30 requests/min per IP. In-memory: per serverless instance, best effort only (see _guard.js).
+export const limiter = createRateLimiter({ limit: 30, windowMs: 60_000 });
 
 function send(res, status, body, cacheSeconds = 0) {
   res.statusCode = status;
@@ -155,14 +157,12 @@ function merge(parts) {
   return out;
 }
 
-export default async function handler(req, res) {
+export default async function handler(req, res, { now = new Date() } = {}) {
+  if (!guard(req, res, limiter, send)) return;
   const q = new URL(req.url, "http://localhost").searchParams;
-  const ident = String(q.get("ident") || "").toUpperCase().replace(/\s+/g, "");
-  const date = String(q.get("date") || "");
-  const sched = q.get("sched");
-  if (!IDENT_RE.test(ident) || !DATE_RE.test(date) || (sched && Number.isNaN(Date.parse(sched)))) {
-    return send(res, 400, { error: "bad_request", hint: "ident=LY347&date=YYYY-MM-DD[&sched=ISO]" });
-  }
+  const v = validateFlightQuery(q, { now });
+  if (!v.ok) return send(res, 400, { error: v.error, hint: "ident=LY347&date=YYYY-MM-DD (within ±3 days of today)[&sched=ISO]" });
+  const { ident, date, sched } = v;
 
   const env = process.env;
   const keys = {

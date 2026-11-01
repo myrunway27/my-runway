@@ -10,10 +10,10 @@
 //
 // Bump VERSION on any change here: the byte change is what makes browsers
 // install the new worker, and activate then drops every older cache.
-const VERSION = "v5";
+const VERSION = "v6";
 const CACHE = `myrunway-shell-${VERSION}`;
 // Only files that exist in this build: addAll fails the whole install on any 404.
-const PRECACHE = ["/", "/index.html", "/manifest.webmanifest", "/myrunway_icon.svg", "/myrunway_badge.svg"];
+const PRECACHE = ["/", "/index.html", "/manifest.webmanifest", "/myrunway_icon.svg", "/myrunway_badge.svg", "/apple-touch-icon.png"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(PRECACHE)));

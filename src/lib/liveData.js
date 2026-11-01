@@ -2,7 +2,16 @@
 // Every failure path returns { configured:false } or { error }, and the UI falls back to the booking.
 import { schedule, identOf } from "./trip.js";
 
-export async function fetchLive(f) {
+// /api/flight only answers for dates within ±3 days of today (UTC); don't call it for others.
+export const LIVE_WINDOW_DAYS = 3;
+export function inLiveWindow(date, now = new Date()) {
+  const d = Date.parse(`${date}T00:00:00Z`);
+  const today = Date.parse(now.toISOString().slice(0, 10) + "T00:00:00Z");
+  return Number.isFinite(d) && Math.abs(d - today) <= LIVE_WINDOW_DAYS * 86400000;
+}
+
+export async function fetchLive(f, now = new Date()) {
+  if (!inLiveWindow(f.depDate, now)) return { configured: false, outOfWindow: true }; // nothing to ask: providers only cover ±3 days
   const s = schedule(f);
   const qs = new URLSearchParams({ ident: identOf(f), date: f.depDate, dep: f.dep, sched: s.dep.toISOString() });
   try {
@@ -51,8 +60,9 @@ export function mockLive(f, scenario) {
 }
 
 /** Used by "Add flight": does live data know this flight on this date? Never invents schedule data. */
-export async function verifyFlight(iata, date) {
+export async function verifyFlight(iata, date, now = new Date()) {
   const ident = identOf({ iata });
+  if (!inLiveWindow(date, now)) return { configured: true, error: "live data only covers ±3 days from today" };
   try {
     const r = await fetch(`/api/flight?${new URLSearchParams({ ident, date })}`);
     const type = r.headers.get("content-type") || "";
