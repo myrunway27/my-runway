@@ -3,7 +3,7 @@
 // Facts here must match the code: storage keys come from usePersistentState("…") in App.jsx (prefixed "mr:").
 
 export const LEGAL_DRAFT_DATE = "October 29, 2026";
-export const CONTACT_PLACEHOLDER = "[contact email to be added]";
+export const CONTACT_EMAIL = "support@myrunwayapp.co";
 
 /** localStorage keys the app writes (all prefixed "mr:"), and what each holds. */
 export const STORED_KEYS = [
@@ -54,7 +54,7 @@ export const PRIVACY = {
     ]],
     ["Changes and contact", [
       "If this policy changes, we'll update this page and its date.",
-      `Questions: ${CONTACT_PLACEHOLDER}.`,
+      `Questions: ${CONTACT_EMAIL}.`,
     ]],
   ],
 };
@@ -86,7 +86,7 @@ export const TERMS = {
     ]],
     ["Changes and contact", [
       "We may update these terms. We'll update this page and its date when we do.",
-      `Questions: ${CONTACT_PLACEHOLDER}.`,
+      `Questions: ${CONTACT_EMAIL}.`,
     ]],
   ],
 };

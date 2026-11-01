@@ -10,7 +10,7 @@ import { fetchLive, mockLive, verifyFlight, MOCK_SCENARIOS } from "./lib/liveDat
 import { fetchAirportWeather, fetchWeatherAt } from "./lib/weather.js";
 import { buildTripIcs, downloadText } from "./lib/ics.js";
 import { lateInbound } from "./lib/lateInbound.js";
-import { PRIVACY, TERMS, LEGAL_DRAFT_DATE } from "./lib/legal.js";
+import { PRIVACY, TERMS, LEGAL_DRAFT_DATE, CONTACT_EMAIL } from "./lib/legal.js";
 import { eu261Estimate, fmtComp, noticeDaysBetween } from "./lib/eu261.js";
 import { fetchFaaStatus, statusFor, relevantEvents, describe as describeFaa } from "./lib/faaStatus.js";
 import { isUsInternationalArrival, CBP_MPC_URL, TSA_WHAT_CAN_I_BRING_URL, searchItems } from "./lib/travelInfo.js";
@@ -653,7 +653,7 @@ function LegalPage({ kind, onBack, onOther }) {
         {doc.sections.map(([h, ps]) => (
           <section key={h} style={{ marginBottom:20 }}>
             <h2 style={{ fontSize:17, fontWeight:700, color:C.text, margin:"0 0 8px", letterSpacing:-0.2 }}>{h}</h2>
-            {ps.map((p, i) => <p key={i} style={{ fontSize:14, color:C.soft, lineHeight:1.55, margin:"0 0 8px" }}>{p}</p>)}
+            {ps.map((p, i) => <p key={i} style={{ fontSize:14, color:C.soft, lineHeight:1.55, margin:"0 0 8px" }}>{p.includes(CONTACT_EMAIL) ? p.split(CONTACT_EMAIL).flatMap((seg, j) => j ? [<a key={j} href={`mailto:${CONTACT_EMAIL}`} data-testid="legal-contact-email" style={{ color:C.accent }}>{CONTACT_EMAIL}</a>, seg] : [seg]) : p}</p>)}
           </section>
         ))}
         {kind === "privacy" && <button type="button" className="mr-btn" data-testid="delete-all-data" onClick={deleteAllLocalData} style={{ ...pillBtn(), width:"100%", color:C.red, marginBottom:12 }}>Delete all data on this device</button>}
